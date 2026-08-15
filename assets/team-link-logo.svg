@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">TEAM LINK logo</title>
+  <desc id="desc">A champagne gold TL monogram for TEAM LINK.</desc>
+  <defs>
+    <radialGradient id="glassGlow" cx="34%" cy="24%" r="78%">
+      <stop offset="0" stop-color="#fff7dc" stop-opacity=".72"/>
+      <stop offset=".28" stop-color="#d7ad62" stop-opacity=".28"/>
+      <stop offset=".68" stop-color="#12100e" stop-opacity=".72"/>
+      <stop offset="1" stop-color="#050506"/>
+    </radialGradient>
+    <linearGradient id="goldStroke" x1="96" y1="70" x2="430" y2="444" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8a5d24"/>
+      <stop offset=".18" stop-color="#fff0bd"/>
+      <stop offset=".44" stop-color="#d4a856"/>
+      <stop offset=".68" stop-color="#fff5cc"/>
+      <stop offset="1" stop-color="#9d6a2b"/>
+    </linearGradient>
+    <linearGradient id="softGold" x1="126" y1="116" x2="380" y2="342" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff4c8"/>
+      <stop offset=".38" stop-color="#f4cf86"/>
+      <stop offset=".72" stop-color="#b98035"/>
+      <stop offset="1" stop-color="#ffe6aa"/>
+    </linearGradient>
+    <filter id="goldShadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="15" stdDeviation="18" flood-color="#000000" flood-opacity=".55"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#f1c979" flood-opacity=".36"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#08090a"/>
+  <circle cx="256" cy="218" r="174" fill="url(#glassGlow)" stroke="url(#goldStroke)" stroke-width="4"/>
+  <circle cx="256" cy="218" r="148" fill="none" stroke="#fff1bd" stroke-opacity=".16" stroke-width="2"/>
+  <path d="M107 106 C154 42 284 40 347 82" fill="none" stroke="#fff1bd" stroke-width="4" stroke-linecap="round" opacity=".34"/>
+  <path d="M398 123 C434 184 426 286 374 341" fill="none" stroke="#d6a758" stroke-width="3" stroke-linecap="round" opacity=".32"/>
+  <g filter="url(#goldShadow)">
+    <text x="246" y="260" text-anchor="middle"
+      font-family="Georgia, 'Times New Roman', serif"
+      font-size="178"
+      font-weight="700"
+      font-style="italic"
+      fill="url(#softGold)"
+      letter-spacing="-22">TL</text>
+  </g>
+  <text x="256" y="384" text-anchor="middle"
+    font-family="Avenir Next, Montserrat, Arial, sans-serif"
+    font-size="34"
+    font-weight="600"
+    letter-spacing="14"
+    fill="#f4dba4">TEAM LINK</text>
+  <text x="256" y="420" text-anchor="middle"
+    font-family="Avenir Next, Arial, sans-serif"
+    font-size="17"
+    font-weight="500"
+    letter-spacing="7"
+    fill="#c69a58">by TEAM hair</text>
+  <circle cx="355" cy="91" r="7" fill="#fff3bd"/>
+  <circle cx="355" cy="91" r="18" fill="#e8bd6d" opacity=".12"/>
+</svg>
