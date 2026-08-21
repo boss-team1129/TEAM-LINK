@@ -101,6 +101,8 @@ const appState = {
   gachaUseConfirmId: "",
   gachaUseConfirmBusy: false,
   gachaTestUseConfirmId: "",
+  customerCheckInOpen: false,
+  customerCheckInBusy: false,
   gachaBinderYear: null,
   adminDataStatus: {
     members: "pending",
@@ -127,6 +129,7 @@ const defaultProfile = {
   guestId: "",
   identityType: "guest",
   lineUserId: "",
+  memberToken: "",
   nickname: "お客様",
   lastVisitDate: "",
   visitCount: 0,
@@ -620,12 +623,13 @@ const adminTabs = [
   { key: "settings", label: "LINE通知設定" }
 ];
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   const splash = document.getElementById("splashScreen");
   window.setTimeout(() => {
     splash?.classList.add("is-hidden");
   }, 1080);
   ensureDemoState();
+  await initializeLinkedIdentityFromUrl();
   applyStoreSettings();
   renderBookingFormOptions();
   bindNavigation();
@@ -659,6 +663,11 @@ function bindNavigation() {
     const bookingMenuCategoryButton = event.target.closest("[data-booking-menu-category]");
     const gachaActionButton = event.target.closest("[data-gacha-action]");
     const couponActionButton = event.target.closest("[data-coupon-action]");
+    const customerCheckInActionButton = event.target.closest("[data-customer-checkin-action]");
+    if (customerCheckInActionButton) {
+      handleCustomerCheckInAction(customerCheckInActionButton.dataset.customerCheckinAction);
+      return;
+    }
     if (adminTabButton) {
       appState.adminTab = adminTabButton.dataset.adminTab;
       renderAdmin();
@@ -2005,6 +2014,7 @@ function renderHome() {
   const nextReservation = buildNextReservationCardData(getNextReservation());
   const coupons = [...getPublicLineCoupons(), ...getAvailableCoupons()];
   const gachaStatus = getMonthlyGachaStatus();
+  renderCustomerCheckIn();
   const reservationTitle = document.getElementById("homeNextReservationTitle");
   const reservationMeta = document.getElementById("homeNextReservationMeta");
   const reservationCountdown = document.getElementById("homeNextReservationCountdown");
@@ -2051,6 +2061,142 @@ function renderHome() {
   const loungeBadge = document.getElementById("homeLoungeBadge");
   if (loungeCard) loungeCard.classList.toggle("is-coming-soon", !isLoungeOpen());
   if (loungeBadge) loungeBadge.textContent = isLoungeOpen() ? "OPEN" : "10月スタート予定";
+}
+
+function isLineLinkedCustomer(profile = getProfile()) {
+  const memberId = String(profile.memberId || profile.linkedMemberId || "").trim();
+  return Boolean(memberId && !memberId.startsWith("guest_") && String(profile.lineUserId || "").trim() && String(profile.memberToken || "").trim());
+}
+
+function renderCustomerCheckIn() {
+  const profile = getProfile();
+  const button = document.getElementById("customerCheckInButton");
+  const dialog = document.getElementById("customerCheckInDialog");
+  if (!button || !dialog) return;
+  const linked = isLineLinkedCustomer(profile);
+  const checkedInToday = linked && isToday(profile.lastVisitDate);
+  button.hidden = !linked;
+  button.classList.toggle("is-complete", checkedInToday);
+  document.getElementById("customerCheckInTitle").textContent = checkedInToday ? "本日の来店記録済み" : "来店しました";
+  document.getElementById("customerCheckInStatus").textContent = checkedInToday ? "ご来店ありがとうございます" : "ご来店時にタップしてください";
+  dialog.hidden = !linked || !appState.customerCheckInOpen;
+  document.body.classList.toggle("has-customer-checkin-dialog", linked && appState.customerCheckInOpen);
+  const confirmButton = document.getElementById("customerCheckInConfirmButton");
+  if (confirmButton) setButtonLoading(confirmButton, appState.customerCheckInBusy, "記録中…");
+}
+
+async function handleCustomerCheckInAction(action) {
+  const profile = getProfile();
+  if (!isLineLinkedCustomer(profile)) {
+    showToast("LINE連携済みの本人画面からご利用ください。");
+    return;
+  }
+  if (action === "open") {
+    if (isToday(profile.lastVisitDate)) {
+      showToast("本日の来店はすでに記録されています");
+      return;
+    }
+    appState.customerCheckInOpen = true;
+    renderCustomerCheckIn();
+    return;
+  }
+  if (action === "cancel") {
+    if (appState.customerCheckInBusy) return;
+    appState.customerCheckInOpen = false;
+    renderCustomerCheckIn();
+    return;
+  }
+  if (action !== "confirm" || appState.customerCheckInBusy) return;
+  appState.customerCheckInBusy = true;
+  renderCustomerCheckIn();
+  try {
+    const result = await apiRequest("customerCheckIn", {
+      memberId: profile.memberId || profile.linkedMemberId,
+      lineUserId: profile.lineUserId,
+      memberToken: profile.memberToken
+    });
+    const data = result.data || result;
+    const member = data.member || {};
+    const nextProfile = {
+      ...profile,
+      memberId: member.memberId || profile.memberId,
+      linkedMemberId: member.memberId || profile.linkedMemberId || profile.memberId,
+      lineUserId: member.lineUserId || profile.lineUserId,
+      nickname: member.nickname || member.realName || profile.nickname,
+      lastVisitDate: member.lastVisitDate || data.visitDate || profile.lastVisitDate,
+      visitCount: Number(member.visitCount ?? profile.visitCount ?? 0),
+      identityType: "member"
+    };
+    writeJson(STORAGE_KEYS.profile, nextProfile);
+    mergeCurrentMemberCache(nextProfile);
+    appState.customerCheckInOpen = false;
+    renderApp();
+    showToast(data.duplicate ? "本日の来店はすでに記録されています" : "本日の来店を記録しました");
+  } catch (error) {
+    console.error("[TEAM LINK CUSTOMER CHECK-IN FAILED]", error);
+    showToast(error?.message || "来店を記録できませんでした。もう一度お試しください。");
+  } finally {
+    appState.customerCheckInBusy = false;
+    renderCustomerCheckIn();
+  }
+}
+
+function mergeCurrentMemberCache(profile) {
+  const members = getMembers();
+  const index = members.findIndex((member) => String(member.memberId || "") === String(profile.memberId || "") || (profile.lineUserId && String(member.lineUserId || "") === String(profile.lineUserId)));
+  const member = {
+    ...(index >= 0 ? members[index] : {}),
+    memberId: profile.memberId,
+    lineUserId: profile.lineUserId,
+    nickname: profile.nickname,
+    realName: profile.realName || profile.nickname,
+    lastVisitDate: profile.lastVisitDate,
+    visitCount: Number(profile.visitCount || 0)
+  };
+  if (index >= 0) members[index] = member;
+  else members.unshift(member);
+  writeJson(STORAGE_KEYS.members, members);
+}
+
+async function initializeLinkedIdentityFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const current = getProfile();
+  const hasIdentityParams = Boolean(params.get("memberId") || params.get("lineUserId") || params.get("memberToken"));
+  const memberId = String(params.get("memberId") || current.memberId || current.linkedMemberId || "").trim();
+  const lineUserId = String(params.get("lineUserId") || current.lineUserId || "").trim();
+  const memberToken = String(params.get("memberToken") || current.memberToken || "").trim();
+  if (!memberId || !lineUserId || !memberToken || !isProductionApiMode()) return;
+  try {
+    const result = await apiRequest("getLinkedMemberProfile", { memberId, lineUserId, memberToken });
+    const member = result.data?.member || result.member;
+    if (!member?.memberId || !member?.lineUserId) throw new Error("本人情報を取得できませんでした。");
+    const nextProfile = {
+      ...defaultProfile,
+      ...current,
+      memberId: member.memberId,
+      linkedMemberId: member.memberId,
+      guestId: current.guestId || getOrCreateGuestId(),
+      identityType: "member",
+      lineUserId: member.lineUserId,
+      memberToken,
+      nickname: member.nickname || member.realName || current.nickname,
+      realName: member.realName || member.nickname || current.realName,
+      lastVisitDate: member.lastVisitDate || "",
+      visitCount: Number(member.visitCount || 0)
+    };
+    writeJson(STORAGE_KEYS.profile, nextProfile);
+    mergeCurrentMemberCache(nextProfile);
+    if (hasIdentityParams) {
+      params.delete("memberId");
+      params.delete("lineUserId");
+      params.delete("memberToken");
+      const cleanQuery = params.toString();
+      history.replaceState({}, "", `${location.pathname}${cleanQuery ? `?${cleanQuery}` : ""}${location.hash}`);
+    }
+  } catch (error) {
+    console.error("[TEAM LINK LINKED IDENTITY FAILED]", error);
+    showToast("本人情報を確認できませんでした。LINEからもう一度開いてください。");
+  }
 }
 
 function warmTeamFortuneCache(birthDate) {
@@ -10687,6 +10833,7 @@ function mapServerBookingToLocal(booking) {
 function normalizeVisitReceptionStatus(status) {
   const value = String(status || "pending");
   if (["visited", "confirmed", "確認済み", "来店済み"].includes(value)) return "来店済み";
+  if (["identified", "本人確認済み"].includes(value)) return "本人確認済み";
   if (["excluded", "通常メッセージ", "対象外"].includes(value)) return "対象外";
   return "未確認";
 }

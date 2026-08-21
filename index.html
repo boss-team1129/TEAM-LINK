@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&amp;family=Noto+Serif+JP:wght@500;600;700&amp;display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 64'%3E%3Crect width='96' height='64' rx='18' fill='%23130f0b'/%3E%3Ctext x='48' y='38' text-anchor='middle' font-size='12' font-family='Georgia, serif' letter-spacing='3' fill='%23d9b46c'%3ETEAM LINK%3C/text%3E%3C/svg%3E">
   <title>TEAM LINK | TEAM hair お客様専用アプリ</title>
-  <link rel="stylesheet" href="styles.css?v=20260814-line-notification-settings-1">
+  <link rel="stylesheet" href="styles.css?v=20260821-customer-checkin-1">
 </head>
 <body>
   <div class="splash-screen" id="splashScreen" aria-hidden="true">
@@ -33,6 +33,15 @@
             <strong class="team-link-wordmark home-text-logo">TEAM LINK</strong>
             <p>ご縁をつなぐ、未来へつなぐ</p>
           </header>
+
+          <button class="home-checkin-card" id="customerCheckInButton" type="button" data-customer-checkin-action="open" hidden>
+            <span class="home-checkin-icon" aria-hidden="true">✓</span>
+            <span class="home-checkin-copy">
+              <strong id="customerCheckInTitle">来店しました</strong>
+              <small id="customerCheckInStatus">ご来店時にタップしてください</small>
+            </span>
+            <span class="home-arrow" aria-hidden="true">›</span>
+          </button>
 
           <button class="home-next-card" id="homeNextReservationCard" type="button" data-view="reservation">
             <span class="home-card-shine" aria-hidden="true"></span>
@@ -100,6 +109,19 @@
               <em>›</em>
             </button>
           </section>
+
+          <div class="customer-checkin-dialog" id="customerCheckInDialog" role="dialog" aria-modal="true" aria-labelledby="customerCheckInDialogTitle" hidden>
+            <div class="customer-checkin-dialog-backdrop" data-customer-checkin-action="cancel"></div>
+            <section class="customer-checkin-dialog-card">
+              <span class="home-checkin-icon" aria-hidden="true">✓</span>
+              <h2 id="customerCheckInDialogTitle">本日の来店を記録しますか？</h2>
+              <p>来店中のお客様ご本人が操作してください。</p>
+              <div class="customer-checkin-dialog-actions">
+                <button class="secondary-button" type="button" data-customer-checkin-action="cancel">キャンセル</button>
+                <button class="primary-button" id="customerCheckInConfirmButton" type="button" data-customer-checkin-action="confirm">来店を記録する</button>
+              </div>
+            </section>
+          </div>
         </div>
       </section>
 
@@ -384,6 +406,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="gacha-reveal" id="gachaReveal" hidden aria-live="polite"></div>
-  <script src="app.js?v=20260814-line-notification-settings-1"></script>
+  <script src="app.js?v=20260821-customer-checkin-1"></script>
 </body>
 </html>
