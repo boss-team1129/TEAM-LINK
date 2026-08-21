@@ -5450,19 +5450,21 @@ function renderAdminVisits() {
   const receptions = appState.adminVisitShowHistory ? allReceptions : allReceptions.filter((item) => isToday(item.receivedAt));
   const unconfirmed = receptions.filter((item) => item.status === "未確認" || item.status === "確認待ち");
   const confirmed = receptions.filter((item) => item.status === "来店済み" || item.status === "確認済み");
+  const identified = receptions.filter((item) => item.status === "本人確認済み");
   const normalMessages = receptions.filter((item) => item.status === "対象外" || item.status === "通常メッセージ");
   const todayReceptions = allReceptions.filter((item) => isToday(item.receivedAt));
   const todaySummary = {
     total: todayReceptions.length,
     unconfirmed: todayReceptions.filter((item) => item.status === "未確認" || item.status === "確認待ち").length,
     confirmed: todayReceptions.filter((item) => item.status === "来店済み" || item.status === "確認済み").length,
+    identified: todayReceptions.filter((item) => item.status === "本人確認済み").length,
     normal: todayReceptions.filter((item) => item.status === "対象外" || item.status === "通常メッセージ").length
   };
   return `
     <section class="admin-section-head">
       <div>
         <h3>来店確認</h3>
-        <p>本日LINEに届いたメッセージを確認し、スタッフが確定したものだけを正式な来店として保存します。</p>
+        <p>お客様が「来店しました」を確定した記録を表示します。名前送信だけの本人確認は来店回数へ加算されません。</p>
       </div>
       <div class="admin-head-actions">
         <button class="secondary-button compact" type="button" data-admin-action="toggleVisitHistory">${appState.adminVisitShowHistory ? "本日だけ表示" : "履歴を見る"}</button>
@@ -5473,10 +5475,12 @@ function renderAdminVisits() {
       ${summaryMetric("本日のメッセージ", todaySummary.total)}
       ${summaryMetric("未確認人数", todaySummary.unconfirmed)}
       ${summaryMetric("確認済み人数", todaySummary.confirmed)}
+      ${summaryMetric("本人確認のみ", todaySummary.identified)}
       ${summaryMetric("対象外", todaySummary.normal)}
     </section>
     ${visitGroup("未確認", "warning", unconfirmed, "未確認の来店受付はありません")}
     ${visitGroup("確認済み", "success", confirmed, "確認済みの受付はありません")}
+    ${visitGroup("本人確認のみ（来店未記録）", "neutral", identified, "本人確認のみのメッセージはありません")}
     ${visitGroup("対象外", "neutral", normalMessages, "対象外にしたメッセージはありません")}
   `;
 }
