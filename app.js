@@ -1434,7 +1434,7 @@ function getPublicLineCoupons(context = {}) {
   return getPublicCoupons(context)
     .filter(isLineCouponDefinition)
     .filter((coupon) => isCouponForStaff(coupon, context.staffId))
-    .filter((coupon) => isSafeLineCouponUrl(coupon.lineCouponUrl));
+    .filter((coupon) => !coupon.lineCouponUrl || isSafeLineCouponUrl(coupon.lineCouponUrl));
 }
 
 function getBookableMyLineCoupons(context = {}) {
@@ -5502,7 +5502,7 @@ function visitGroup(title, tone, items, emptyMessage) {
 
 function visitReceptionCard(item, tone = "") {
   const member = findMember(item.memberId);
-  const time = formatReceptionTime(item.receivedAt);
+  const time = formatReceptionTime(item.visitTime || item.confirmedAt || item.receivedAt);
   const todayBooking = readJson(STORAGE_KEYS.bookings, []).find((booking) => (
     String(booking.memberId || booking.userId || "") === String(item.memberId || "") &&
     isToday(booking.confirmedDateTime || booking.firstDateTime)
@@ -5519,7 +5519,8 @@ function visitReceptionCard(item, tone = "") {
         ${summaryRows([
           ["LINE表示名", item.lineDisplayName || "未取得"],
           ["メッセージ", item.messageText || item.sentName || "-"],
-          ["来店状態", item.status]
+          ["来店状態", item.status],
+          ["累計来店回数", `${Number(item.visitCount ?? member?.visitCount ?? 0)}回`]
         ])}
       </div>
       <div class="admin-actions priority-actions">
