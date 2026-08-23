@@ -23,9 +23,14 @@ MAIN_AREAS = [
 SERVICE_AREAS = [
     (0, 0, 1250, 220),
     (1250, 0, 1250, 220),
-    (60, 250, 2380, 590),
-    (60, 870, 1160, 740),
-    (1280, 870, 1160, 740),
+    (60, 250, 2380, 390),
+    (95, 1020, 1050, 102),
+    (95, 1134, 1050, 102),
+    (95, 1248, 1050, 102),
+    (95, 1362, 1050, 102),
+    (95, 1476, 1050, 102),
+    (1210, 670, 590, 956),
+    (1830, 670, 610, 956),
 ]
 
 
@@ -60,4 +65,4 @@ if __name__ == "__main__":
     service_size = validate_image("teamlink.png")
     validate_areas("main", MAIN_AREAS)
     validate_areas("service", SERVICE_AREAS)
-    print(f"OK main.png={main_size}B teamlink.png={service_size}B areas=14")
+    print(f"OK main.png={main_size}B teamlink.png={service_size}B areas=19")

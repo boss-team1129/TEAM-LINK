@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+      width="2500" height="1686" viewBox="0 0 2500 1686">
+      <defs>
+        <linearGradient id="pageBg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#fff9ec"/><stop offset=".52" stop-color="#faedef"/><stop offset="1" stop-color="#eee9f8"/>
+        </linearGradient>
+        <linearGradient id="ivoryCard" x1="0" y1="0" x2="0" y2="1">
+          <stop stop-color="#fffef9"/><stop offset="1" stop-color="#f8ecdc"/>
+        </linearGradient>
+        <linearGradient id="pinkCard" x1="0" y1="0" x2="0" y2="1">
+          <stop stop-color="#fff9fa"/><stop offset="1" stop-color="#f7dfe7"/>
+        </linearGradient>
+        <linearGradient id="lavenderCard" x1="0" y1="0" x2="0" y2="1">
+          <stop stop-color="#fdfbff"/><stop offset="1" stop-color="#e9e1f6"/>
+        </linearGradient>
+        <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+          <stop stop-color="#f2d99a"/><stop offset=".45" stop-color="#c99b47"/><stop offset="1" stop-color="#f5dfaa"/>
+        </linearGradient>
+        <linearGradient id="photoShade" x1="0" y1="0" x2="1" y2="0">
+          <stop stop-color="#2c1d18" stop-opacity=".72"/><stop offset=".62" stop-color="#2c1d18" stop-opacity=".16"/><stop offset="1" stop-color="#2c1d18" stop-opacity="0"/>
+        </linearGradient>
+        <filter id="cardShadow" x="-15%" y="-15%" width="130%" height="145%">
+          <feDropShadow dx="0" dy="16" stdDeviation="15" flood-color="#5e3d32" flood-opacity=".18"/>
+        </filter>
+        <filter id="smallShadow" x="-15%" y="-20%" width="130%" height="150%">
+          <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#5e3d32" flood-opacity=".16"/>
+        </filter>
+        <style>
+          text { font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+          .serif { font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; }
+          .brown { fill:#50382f; } .muted { fill:#80695d; } .goldText { fill:#a9782f; }
+        </style>
+      </defs>
+      <rect width="2500" height="1686" fill="url(#pageBg)"/>
+    <rect width="2500" height="220" fill="#fffbf2"/><path d="M1250 44V176" stroke="#cfb17d" stroke-width="3"/><rect x="50" y="30" width="1150" height="164" rx="54" fill="url(#gold)" filter="url(#smallShadow)"/><text x="625" y="142" text-anchor="middle" font-size="72" font-weight="800" fill="#fffdf8">メイン</text><text x="1875" y="142" text-anchor="middle" font-size="72" font-weight="800" fill="#50382f">TEAM LINK</text><g filter="url(#cardShadow)">
+      <rect x="60" y="250" width="2380" height="340" rx="58" fill="url(#ivoryCard)" stroke="#c9a45e" stroke-width="4"/>
+      <rect x="67" y="257" width="2366" height="326" rx="51" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="4"/>
+    </g><circle cx="255" cy="420" r="90" fill="url(#gold)" filter="url(#smallShadow)"/>
+      <path d="M210 421l31 34 67-78" fill="none" stroke="#fffdf8" stroke-width="21" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="410" y="405" class="serif brown" font-size="118" font-weight="800">来店しました</text>
+      <text x="414" y="494" class="muted" font-size="40" font-weight="600">今日の来店を記録（1日1回）</text><g filter="url(#cardShadow)">
+      <rect x="60" y="620" width="773" height="470" rx="48" fill="url(#ivoryCard)" stroke="#c9a45e" stroke-width="4"/>
+      <rect x="67" y="627" width="759" height="456" rx="41" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="4"/>
+    </g><defs><clipPath id="mainIcon0"><rect x="264" y="648" width="365" height="235" rx="42"/></clipPath></defs>
+      <image x="264" y="648" width="365" height="235" preserveAspectRatio="xMidYMid slice"
+        clip-path="url(#mainIcon0)" xlink:href="../../home/reservation.png"/><rect x="264" y="648" width="365" height="235" rx="42" fill="none" stroke="#fff" stroke-opacity=".82" stroke-width="4"/><text x="446.5" y="977" text-anchor="middle" class="serif brown" font-size="82" font-weight="800">予約をする</text><text x="446.5" y="1038" text-anchor="middle" class="muted" font-size="31" font-weight="600">ご予約はこちら</text><g filter="url(#cardShadow)">
+      <rect x="863" y="620" width="774" height="470" rx="48" fill="url(#ivoryCard)" stroke="#c9a45e" stroke-width="4"/>
+      <rect x="870" y="627" width="760" height="456" rx="41" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="4"/>
+    </g><defs><clipPath id="mainIcon1"><rect x="1067" y="648" width="365" height="235" rx="42"/></clipPath></defs>
+      <image x="1067" y="648" width="365" height="235" preserveAspectRatio="xMidYMid slice"
+        clip-path="url(#mainIcon1)" xlink:href="../../home/reservation.png"/><rect x="1067" y="648" width="365" height="235" rx="42" fill="none" stroke="#fff" stroke-opacity=".82" stroke-width="4"/><text x="1249.5" y="977" text-anchor="middle" class="serif brown" font-size="82" font-weight="800">予約確認</text><text x="1249.5" y="1038" text-anchor="middle" class="muted" font-size="31" font-weight="600">予約状況を確認</text><g filter="url(#cardShadow)">
+      <rect x="1666" y="620" width="773" height="470" rx="48" fill="url(#pinkCard)" stroke="#c9a45e" stroke-width="4"/>
+      <rect x="1673" y="627" width="759" height="456" rx="41" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="4"/>
+    </g><defs><clipPath id="mainIcon2"><rect x="1870" y="648" width="365" height="235" rx="42"/></clipPath></defs>
+      <image x="1870" y="648" width="365" height="235" preserveAspectRatio="xMidYMid slice"
+        clip-path="url(#mainIcon2)" xlink:href="../../home/coupon.png"/><rect x="1870" y="648" width="365" height="235" rx="42" fill="none" stroke="#fff" stroke-opacity=".82" stroke-width="4"/><text x="2052.5" y="977" text-anchor="middle" class="serif brown" font-size="82" font-weight="800">クーポン</text><text x="2052.5" y="1038" text-anchor="middle" class="muted" font-size="31" font-weight="600">お得な情報</text><g filter="url(#cardShadow)">
+      <rect x="60" y="1120" width="773" height="470" rx="48" fill="url(#lavenderCard)" stroke="#c9a45e" stroke-width="4"/>
+      <rect x="67" y="1127" width="759" height="456" rx="41" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="4"/>
+    </g><defs><clipPath id="mainIcon3"><rect x="264" y="1148" width="365" height="235" rx="42"/></clipPath></defs>
+      <image x="264" y="1148" width="365" height="235" preserveAspectRatio="xMidYMid slice"
+        clip-path="url(#mainIcon3)" xlink:href="../../home/gacha.png"/><rect x="264" y="1148" width="365" height="235" rx="42" fill="none" stroke="#fff" stroke-opacity=".82" stroke-width="4"/><text x="446.5" y="1477" text-anchor="middle" class="serif brown" font-size="82" font-weight="800">今月のガチャ</text><text x="446.5" y="1538" text-anchor="middle" class="muted" font-size="31" font-weight="600">毎月のお楽しみ</text><g filter="url(#cardShadow)">
+      <rect x="863" y="1120" width="774" height="470" rx="48" fill="url(#lavenderCard)" stroke="#c9a45e" stroke-width="4"/>
+      <rect x="870" y="1127" width="760" height="456" rx="41" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="4"/>
+    </g><defs><clipPath id="mainIcon4"><rect x="1067" y="1148" width="365" height="235" rx="42"/></clipPath></defs>
+      <image x="1067" y="1148" width="365" height="235" preserveAspectRatio="xMidYMid slice"
+        clip-path="url(#mainIcon4)" xlink:href="../../home/fortune.png"/><rect x="1067" y="1148" width="365" height="235" rx="42" fill="none" stroke="#fff" stroke-opacity=".82" stroke-width="4"/><text x="1249.5" y="1477" text-anchor="middle" class="serif brown" font-size="82" font-weight="800">占い</text><text x="1249.5" y="1538" text-anchor="middle" class="muted" font-size="31" font-weight="600">今日の運勢</text><g filter="url(#cardShadow)">
+      <rect x="1666" y="1120" width="773" height="470" rx="48" fill="url(#ivoryCard)" stroke="#c9a45e" stroke-width="4"/>
+      <rect x="1673" y="1127" width="759" height="456" rx="41" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="4"/>
+    </g><defs><clipPath id="mainIcon5"><rect x="1870" y="1148" width="365" height="235" rx="42"/></clipPath></defs>
+      <image x="1870" y="1148" width="365" height="235" preserveAspectRatio="xMidYMid slice"
+        clip-path="url(#mainIcon5)" xlink:href="../../home/mypage.png"/><rect x="1870" y="1148" width="365" height="235" rx="42" fill="none" stroke="#fff" stroke-opacity=".82" stroke-width="4"/><text x="2052.5" y="1477" text-anchor="middle" class="serif brown" font-size="82" font-weight="800">マイページ</text><text x="2052.5" y="1538" text-anchor="middle" class="muted" font-size="31" font-weight="600">会員情報を見る</text></svg>

@@ -4,8 +4,11 @@
  * Safe to run repeatedly: it reuses matching owned menus and updates aliases in place.
  */
 const TEAM_LINK_RICHMENU_CONFIG = Object.freeze({
-  version: "20260823-1",
+  version: "20260823-2",
   publicUrl: "https://boss-team1129.github.io/TEAM-LINK/",
+  kimikeaUrl: "https://boss-team1129.github.io/Kimikea-Connect/",
+  recommendedProductsUrl: "https://fordays-shop.jp/?intro=vbej6z1xoyzppojfd277",
+  instagramUrl: "https://www.instagram.com/teamhair_1129/",
   aliases: { main: "teamlink-main", service: "teamlink-service" },
   images: {
     main: "https://boss-team1129.github.io/TEAM-LINK/images/richmenu/main.png",
@@ -14,6 +17,9 @@ const TEAM_LINK_RICHMENU_CONFIG = Object.freeze({
 });
 
 function setupTeamLinkRichMenus() {
+  if (!TEAM_LINK_RICHMENU_CONFIG.instagramUrl) {
+    throw new Error("Instagramの正式URLをTEAM_LINK_RICHMENU_CONFIG.instagramUrlへ設定してください。API登録はまだ実行していません。");
+  }
   const token = String(PropertiesService.getScriptProperties().getProperty("LINE_CHANNEL_ACCESS_TOKEN") || "").trim();
   if (!token) throw new Error("LINE_CHANNEL_ACCESS_TOKEN がScript Propertiesに設定されていません。");
   const before = listTeamLinkRichMenus_(token);
@@ -57,6 +63,7 @@ function inspectTeamLinkRichMenus() {
 function buildTeamLinkRichMenuDefinitions_() {
   const config = TEAM_LINK_RICHMENU_CONFIG;
   const publicUrl = config.publicUrl;
+  const kimikeaUrl = config.kimikeaUrl;
   const tabMain = {
     bounds: { x: 0, y: 0, width: 1250, height: 220 },
     action: { type: "richmenuswitch", richMenuAliasId: config.aliases.main, data: "action=richMenuSwitch&tab=main" }
@@ -100,9 +107,14 @@ function buildTeamLinkRichMenuDefinitions_() {
       areas: [
         tabMain,
         tabService,
-        uriArea({ x: 60, y: 250, width: 2380, height: 590 }, "ご縁ラウンジ", publicUrl + "?view=lounge"),
-        uriArea({ x: 60, y: 870, width: 1160, height: 740 }, "EXTENSION", publicUrl + "?view=extension"),
-        uriArea({ x: 1280, y: 870, width: 1160, height: 740 }, "おすすめ商品", publicUrl + "?view=products")
+        uriArea({ x: 60, y: 250, width: 2380, height: 390 }, "ご縁ラウンジ", publicUrl + "?view=lounge"),
+        uriArea({ x: 95, y: 1020, width: 1050, height: 102 }, "スタイル図鑑", kimikeaUrl + "stylebook/"),
+        uriArea({ x: 95, y: 1134, width: 1050, height: 102 }, "マップ", kimikeaUrl + "?view=map"),
+        uriArea({ x: 95, y: 1248, width: 1050, height: 102 }, "ランキング", kimikeaUrl + "?view=popular"),
+        uriArea({ x: 95, y: 1362, width: 1050, height: 102 }, "講習案内", kimikeaUrl + "?view=academy"),
+        uriArea({ x: 95, y: 1476, width: 1050, height: 102 }, "AI診断", kimikeaUrl + "?view=ai-diagnosis"),
+        uriArea({ x: 1210, y: 670, width: 590, height: 956 }, "おすすめ商品", config.recommendedProductsUrl),
+        uriArea({ x: 1830, y: 670, width: 610, height: 956 }, "Instagram", config.instagramUrl)
       ]
     }
   };
