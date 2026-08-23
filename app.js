@@ -1,6 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
+const TEAM_LINK_FRONTEND_BUILD = "20260823-booking-email-2";
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -642,6 +643,7 @@ const adminTabs = [
 ];
 
 document.addEventListener("DOMContentLoaded", async () => {
+  if (await reloadIfFrontendBuildIsStale()) return;
   const splash = document.getElementById("splashScreen");
   window.setTimeout(() => {
     splash?.classList.add("is-hidden");
@@ -662,6 +664,23 @@ document.addEventListener("DOMContentLoaded", async () => {
     syncProductionState();
   }
 });
+
+async function reloadIfFrontendBuildIsStale() {
+  try {
+    const response = await fetch(`./index.html?build-check=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return false;
+    const html = await response.text();
+    const latestBuild = html.match(/app\.js\?v=([^"']+)/)?.[1] || "";
+    if (!latestBuild || latestBuild === TEAM_LINK_FRONTEND_BUILD) return false;
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("frontendBuild", latestBuild);
+    window.location.replace(nextUrl.toString());
+    return true;
+  } catch (error) {
+    console.warn("[TEAM LINK FRONTEND BUILD CHECK FAILED]", error);
+    return false;
+  }
+}
 
 function bindNavigation() {
   document.body.addEventListener("pointerdown", (event) => {
@@ -11065,7 +11084,7 @@ async function syncProductionLineNotificationSettings(options = {}) {
   appState.lineNotificationSettingsStatus = "loading";
   if (options.render !== false) renderApp();
   try {
-    const result = await apiRequest("getLineNotificationSettings", {});
+    const result = await requestAdminSettingWithRetry("getLineNotificationSettings", {});
     const settings = result.settings || result.data?.settings;
     if (!settings || typeof settings !== "object") throw new Error("LINE通知設定の形式が正しくありません。");
     appState.lineNotificationSettings = normalizeLineNotificationSettings(settings);
@@ -11139,7 +11158,7 @@ async function syncProductionBookingNotificationSettings(options = {}) {
   appState.bookingNotificationSettingsStatus = "loading";
   if (options.render !== false) renderApp();
   try {
-    const result = await apiRequest("getBookingNotificationSettings", {});
+    const result = await requestAdminSettingWithRetry("getBookingNotificationSettings", {});
     const settings = result.settings || result.data?.settings || result.data || result;
     appState.bookingNotificationSettings = normalizeBookingNotificationSettings(settings);
     appState.bookingNotificationSettingsStatus = "ready";
@@ -11154,14 +11173,32 @@ async function syncProductionBookingNotificationSettings(options = {}) {
 }
 
 async function syncProductionAdminSettings(options = {}) {
-  const results = await Promise.allSettled([
-    syncProductionLineNotificationSettings({ render: false }),
-    syncProductionBookingNotificationSettings({ render: false })
-  ]);
+  const results = [];
+  for (const syncSettings of [syncProductionLineNotificationSettings, syncProductionBookingNotificationSettings]) {
+    try {
+      results.push({ status: "fulfilled", value: await syncSettings({ render: false }) });
+    } catch (reason) {
+      results.push({ status: "rejected", reason });
+    }
+  }
   if (options.render !== false) renderApp();
   const rejected = results.find((result) => result.status === "rejected");
   if (rejected) throw rejected.reason;
   return results.map((result) => result.value);
+}
+
+async function requestAdminSettingWithRetry(action, payload) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await apiRequest(action, payload);
+    } catch (error) {
+      lastError = error;
+      if (error?.errorCode || attempt >= 2) break;
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+    }
+  }
+  throw lastError || new Error("通知設定を取得できませんでした。");
 }
 
 function addBookingNotificationEmail(button) {
