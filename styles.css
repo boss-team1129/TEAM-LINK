@@ -4898,6 +4898,107 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
   gap: 8px;
 }
 
+.booking-notification-email-settings {
+  display: grid;
+  gap: 14px;
+}
+
+.booking-notification-email-settings > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.booking-notification-email-settings > header h3,
+.booking-notification-email-settings > header p {
+  margin: 0;
+}
+
+.booking-notification-email-list {
+  display: grid;
+  gap: 8px;
+}
+
+.booking-notification-email-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(228, 199, 126, .22);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .05);
+}
+
+.booking-notification-email-row span {
+  min-width: 0;
+  color: var(--cream);
+  font-size: 13px;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.booking-notification-email-row .selection-remove-button {
+  min-height: 34px;
+  padding: 6px 11px;
+  white-space: nowrap;
+}
+
+.booking-notification-email-empty {
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed rgba(255, 133, 133, .48);
+  border-radius: 14px;
+  color: #ffc8c8;
+  font-size: 12px;
+}
+
+.booking-notification-email-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.booking-notification-email-add label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: rgba(255, 250, 239, .72);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.booking-notification-email-add input {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid rgba(201, 155, 74, .34);
+  border-radius: 14px;
+  color: var(--ink);
+  background: rgba(255, 250, 239, .94);
+  font: inherit;
+}
+
+.booking-notification-email-add .secondary-button {
+  min-height: 46px;
+  padding-inline: 14px;
+}
+
+@media (max-width: 560px) {
+  .booking-notification-email-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .booking-notification-email-add .secondary-button {
+    width: 100%;
+  }
+}
+
 .admin-dashboard-grid,
 .admin-grid {
   display: grid;

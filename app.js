@@ -95,6 +95,9 @@ const appState = {
   lineNotificationSettings: null,
   lineNotificationSettingsStatus: "pending",
   lineNotificationSettingsBusy: false,
+  bookingNotificationSettings: null,
+  bookingNotificationSettingsStatus: "pending",
+  bookingNotificationSettingsBusy: false,
   menuMasterSyncStatus: "pending",
   couponMasterSyncStatus: "pending",
   memberCouponSyncStatus: "pending",
@@ -690,10 +693,10 @@ function bindNavigation() {
     if (adminTabButton) {
       appState.adminTab = adminTabButton.dataset.adminTab;
       renderAdmin();
-      if (isProductionApiMode() && appState.adminTab === "settings" && appState.lineNotificationSettingsStatus !== "ready") {
-        syncProductionLineNotificationSettings().catch((error) => {
-          console.error("[TEAM LINK LINE NOTIFICATION SETTINGS SYNC FAILED]", error);
-          showToast("LINE通知設定を取得できませんでした。");
+      if (isProductionApiMode() && appState.adminTab === "settings" && (appState.lineNotificationSettingsStatus !== "ready" || appState.bookingNotificationSettingsStatus !== "ready")) {
+        syncProductionAdminSettings().catch((error) => {
+          console.error("[TEAM LINK ADMIN SETTINGS SYNC FAILED]", error);
+          showToast("通知設定を取得できませんでした。");
         });
       } else if (isProductionApiMode() && ["bookings", "visits", "coupons", "gacha", "members"].includes(appState.adminTab) && appState.adminDataStatus[appState.adminTab] !== "ready") {
         syncProductionAdminSection().catch((error) => {
@@ -848,9 +851,9 @@ function bindForms() {
       renderApp();
       showView("bookingDone", { preserveBookingDraft: false });
       const notification = result?.data?.notification || result?.notification;
-      if (notification?.status === "failed") {
+      if (["failed", "partial_failed"].includes(String(notification?.status || ""))) {
         console.error("[TEAM LINK BOOKING EMAIL FAILED]", notification);
-        showToast("予約は受け付けましたが、通知メールの送信に失敗しました");
+        showToast(notification.status === "partial_failed" ? "予約は受け付けましたが、一部の通知メール送信に失敗しました" : "予約は受け付けましたが、通知メールの送信に失敗しました");
       } else {
         showToast("予約希望を送信しました");
       }
@@ -6093,6 +6096,7 @@ function bookingCard(booking) {
   const isDeepLinked = String(appState.adminFocusedBookingRequestId || "") === String(requestId);
   const canRespond = ["予約希望", "確認待ち", "日時変更相談", "変更依頼", "別日時提案中", "お客様返答待ち"].includes(status);
   const lineNotificationLabel = getBookingLineNotificationLabel(booking);
+  const emailNotificationLabel = getBookingEmailNotificationLabel(booking);
   const consultations = Array.isArray(booking.bookingConsultations) ? booking.bookingConsultations : [];
   return `
     <article class="admin-mini-record admin-booking-row ${canRespond ? "is-pending" : ""} ${isDeepLinked ? "is-deep-linked" : ""}" data-booking-request-id="${escapeHtml(requestId)}">
@@ -6134,6 +6138,7 @@ function bookingCard(booking) {
             ${(booking.staffMessageSentAt || booking.staffMessageSentBy) ? `<small>${escapeHtml(booking.staffMessageSentBy || "スタッフ")} / ${escapeHtml(formatDateTime(booking.staffMessageSentAt) || "送信日時未記録")}</small>` : ""}
           </div>
         ` : ""}
+        ${emailNotificationLabel ? `<p>予約通知メール：${escapeHtml(emailNotificationLabel)}</p>` : ""}
         ${lineNotificationLabel ? `<p>LINE通知：${escapeHtml(lineNotificationLabel)}</p>` : ""}
         <small>${escapeHtml(booking.userId || booking.memberId || "")} / 受付 ${escapeHtml(formatDateTime(booking.receivedAt || booking.createdAt))}</small>
       </details>
@@ -7016,6 +7021,8 @@ function renderAdminSettings() {
   const canEditLineSettings = session.role === "admin";
   const lineSettings = appState.lineNotificationSettings;
   const lineSettingsStatus = appState.lineNotificationSettingsStatus;
+  const bookingEmailSettings = appState.bookingNotificationSettings;
+  const bookingEmailSettingsStatus = appState.bookingNotificationSettingsStatus;
   const lineSettingItems = [
     ["bookingConfirmed", "予約確定通知", "予約を確定したとき"],
     ["bookingNeedsChange", "別日の案内通知", "別日の相談を送るとき"],
@@ -7053,6 +7060,7 @@ function renderAdminSettings() {
         ${canEditLineSettings ? `<button type="button" class="primary-button" data-admin-action="saveLineNotificationSettings" ${appState.lineNotificationSettingsBusy ? "disabled" : ""}>${appState.lineNotificationSettingsBusy ? "保存中…" : "設定を保存する"}</button>` : `<p class="soft-note">設定変更は管理者のみ行えます。</p>`}
       ` : ""}
     </article>
+    ${renderBookingNotificationEmailSettings(bookingEmailSettings, bookingEmailSettingsStatus, canEditLineSettings)}
     <div class="admin-grid">
       <article class="admin-card"><span>現在の権限</span><strong>${escapeHtml(session.label)}</strong><small>${session.role === "admin" ? "すべての閲覧・編集・削除が可能" : "来店確認、予約対応、クーポン確認のみ"}</small></article>
       <article class="admin-card"><span>予約先</span><strong>Hot Pepper</strong><small>${escapeHtml(settings.hotpepperReservationUrl || "未設定")}</small></article>
@@ -7068,11 +7076,49 @@ function renderAdminSettings() {
   `;
 }
 
+function renderBookingNotificationEmailSettings(settings, status, canEdit) {
+  const emails = Array.isArray(settings?.emails) ? settings.emails : [];
+  return `
+    <article class="admin-preview booking-notification-email-settings">
+      <header>
+        <div><p class="kicker">Booking email</p><h3>予約通知メール設定</h3></div>
+        <span class="badge ${status === "ready" && emails.length ? "status-success" : "status-warning"}">${status === "ready" ? `${emails.length}件` : "確認中"}</span>
+      </header>
+      <p class="soft-note">新しい予約希望が入ったとき、登録したすべてのスタッフへ同じ内容を送信します。</p>
+      ${status === "loading" || status === "pending" ? `<p>本番Settingsを取得しています…</p>` : ""}
+      ${status === "error" ? `<div class="admin-empty"><strong>予約通知メール設定を取得できませんでした</strong><button type="button" class="secondary-button" data-admin-action="reloadBookingNotificationSettings">再取得</button></div>` : ""}
+      ${status === "ready" ? `
+        ${canEdit ? `
+          <div class="booking-notification-email-list">
+            ${emails.map((email, index) => `
+              <div class="booking-notification-email-row">
+                <span>${escapeHtml(email)}</span>
+                <button type="button" class="selection-remove-button" data-admin-action="removeBookingNotificationEmail" data-index="${index}">削除</button>
+              </div>
+            `).join("") || `<p class="booking-notification-email-empty">通知先を1件以上登録してください。</p>`}
+          </div>
+          <div class="booking-notification-email-add">
+            <label>メールアドレス
+              <input type="email" inputmode="email" autocomplete="email" data-booking-notification-email-input placeholder="example@example.com">
+            </label>
+            <button type="button" class="secondary-button" data-admin-action="addBookingNotificationEmail">＋ メールアドレスを追加</button>
+          </div>
+          <button type="button" class="primary-button" data-admin-action="saveBookingNotificationSettings" ${appState.bookingNotificationSettingsBusy ? "disabled" : ""}>${appState.bookingNotificationSettingsBusy ? "保存中…" : "保存"}</button>
+        ` : `<p class="soft-note">予約通知先の変更は管理者のみ行えます。現在 ${emails.length}件登録されています。</p>`}
+      ` : ""}
+    </article>
+  `;
+}
+
 function handleAdminAction(button) {
   const action = button.dataset.adminAction;
   const id = button.dataset.id || "";
   if (action === "reloadLineNotificationSettings") return syncProductionLineNotificationSettings();
   if (action === "saveLineNotificationSettings") return saveLineNotificationSettings(button);
+  if (action === "reloadBookingNotificationSettings") return syncProductionBookingNotificationSettings();
+  if (action === "addBookingNotificationEmail") return addBookingNotificationEmail(button);
+  if (action === "removeBookingNotificationEmail") return removeBookingNotificationEmail(button);
+  if (action === "saveBookingNotificationSettings") return saveBookingNotificationSettings(button);
   if (action === "simulateVisit") return simulateVisitReception();
   if (action === "toggleVisitHistory") {
     appState.adminVisitShowHistory = !appState.adminVisitShowHistory;
@@ -8666,6 +8712,17 @@ function getBookingLineNotificationLabel(booking) {
   if (status === "skipped_unlinked") return "LINE未連携のため通知なし";
   if (status === "skipped_disabled") return "LINE通知OFFのため送信なし";
   if (status === "failed") return "通知失敗";
+  return "";
+}
+
+function getBookingEmailNotificationLabel(booking) {
+  const status = String(booking?.notificationStatus || "");
+  const sentCount = Number(booking?.notificationSentCount || 0);
+  const failedCount = Number(booking?.notificationFailedCount || 0);
+  if (status === "sent") return sentCount ? `送信済み（${sentCount}件）` : "送信済み";
+  if (status === "partial_failed") return `一部送信失敗（成功${sentCount}件・失敗${failedCount}件）`;
+  if (status === "failed") return failedCount ? `送信失敗（${failedCount}件）` : "送信失敗";
+  if (status === "skipped_no_recipient") return "通知先未設定";
   return "";
 }
 
@@ -11055,6 +11112,132 @@ async function saveLineNotificationSettings(button) {
   }
 }
 
+function normalizeBookingNotificationEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isValidBookingNotificationEmail(value) {
+  const email = normalizeBookingNotificationEmail(value);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
+}
+
+function normalizeBookingNotificationSettings(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const rawEmails = Array.isArray(source.emails)
+    ? source.emails
+    : String(source.value || "").split(/[;,\s]+/).filter(Boolean);
+  const emails = [];
+  rawEmails.forEach((value) => {
+    const email = normalizeBookingNotificationEmail(value);
+    if (isValidBookingNotificationEmail(email) && !emails.includes(email)) emails.push(email);
+  });
+  return { emails, updatedAt: source.updatedAt || "" };
+}
+
+async function syncProductionBookingNotificationSettings(options = {}) {
+  if (!isProductionApiMode() || !getAdminSession()) return null;
+  appState.bookingNotificationSettingsStatus = "loading";
+  if (options.render !== false) renderApp();
+  try {
+    const result = await apiRequest("getBookingNotificationSettings", {});
+    const settings = result.settings || result.data?.settings || result.data || result;
+    appState.bookingNotificationSettings = normalizeBookingNotificationSettings(settings);
+    appState.bookingNotificationSettingsStatus = "ready";
+    if (options.render !== false) renderApp();
+    return appState.bookingNotificationSettings;
+  } catch (error) {
+    appState.bookingNotificationSettings = null;
+    appState.bookingNotificationSettingsStatus = "error";
+    if (options.render !== false) renderApp();
+    throw error;
+  }
+}
+
+async function syncProductionAdminSettings(options = {}) {
+  const results = await Promise.allSettled([
+    syncProductionLineNotificationSettings({ render: false }),
+    syncProductionBookingNotificationSettings({ render: false })
+  ]);
+  if (options.render !== false) renderApp();
+  const rejected = results.find((result) => result.status === "rejected");
+  if (rejected) throw rejected.reason;
+  return results.map((result) => result.value);
+}
+
+function addBookingNotificationEmail(button) {
+  const panel = button.closest(".booking-notification-email-settings");
+  const input = panel?.querySelector("[data-booking-notification-email-input]");
+  const email = normalizeBookingNotificationEmail(input?.value);
+  if (!email) {
+    showToast("メールアドレスを入力してください。");
+    input?.focus();
+    return false;
+  }
+  if (!isValidBookingNotificationEmail(email)) {
+    showToast("正しいメールアドレス形式で入力してください。");
+    input?.focus();
+    return false;
+  }
+  const current = normalizeBookingNotificationSettings(appState.bookingNotificationSettings);
+  if (current.emails.includes(email)) {
+    showToast("同じメールアドレスは登録できません。");
+    input?.focus();
+    return false;
+  }
+  appState.bookingNotificationSettings = { ...current, emails: [...current.emails, email] };
+  renderAdmin();
+  showToast("通知先へ追加しました。保存すると本番へ反映されます。");
+  return true;
+}
+
+function removeBookingNotificationEmail(button) {
+  const index = Number(button.dataset.index);
+  const current = normalizeBookingNotificationSettings(appState.bookingNotificationSettings);
+  if (!Number.isInteger(index) || index < 0 || index >= current.emails.length) return false;
+  appState.bookingNotificationSettings = {
+    ...current,
+    emails: current.emails.filter((_, emailIndex) => emailIndex !== index)
+  };
+  renderAdmin();
+  showToast("通知先から削除しました。保存すると本番へ反映されます。");
+  return true;
+}
+
+async function saveBookingNotificationSettings(button) {
+  if (!isProductionApiMode() || !getAdminSession() || appState.bookingNotificationSettingsBusy) return false;
+  const current = normalizeBookingNotificationSettings(appState.bookingNotificationSettings);
+  if (!current.emails.length) {
+    showToast("通知先メールアドレスを1件以上登録してください。");
+    return false;
+  }
+  if (current.emails.some((email) => !isValidBookingNotificationEmail(email))) {
+    showToast("正しいメールアドレス形式で入力してください。");
+    return false;
+  }
+  if (new Set(current.emails).size !== current.emails.length) {
+    showToast("同じメールアドレスは登録できません。");
+    return false;
+  }
+  appState.bookingNotificationSettingsBusy = true;
+  renderAdmin();
+  try {
+    const result = await apiRequest("updateBookingNotificationSettings", { emails: current.emails });
+    const settings = result.settings || result.data?.settings || result.data || result;
+    appState.bookingNotificationSettings = normalizeBookingNotificationSettings(settings);
+    appState.bookingNotificationSettingsStatus = "ready";
+    addAdminLog("booking_notification_settings", `予約通知メールを${appState.bookingNotificationSettings.emails.length}件に更新`, getAdminSession()?.name);
+    showToast("予約通知メール設定を保存しました。");
+    return true;
+  } catch (error) {
+    console.error("[TEAM LINK BOOKING NOTIFICATION SETTINGS SAVE FAILED]", error);
+    showToast(error?.message || "予約通知メール設定を保存できませんでした。");
+    return false;
+  } finally {
+    appState.bookingNotificationSettingsBusy = false;
+    renderAdmin();
+  }
+}
+
 function mapServerBookingToLocal(booking) {
   return {
     ...booking,
@@ -11097,7 +11280,7 @@ async function syncProductionVisitReceptions(options = {}) {
 
 async function syncProductionAdminSection(options = {}) {
   if (appState.adminTab === "bookings") return syncProductionBookingRequests(options);
-  if (appState.adminTab === "settings") return syncProductionLineNotificationSettings(options);
+  if (appState.adminTab === "settings") return syncProductionAdminSettings(options);
   return syncProductionAdminState(options);
 }
 
