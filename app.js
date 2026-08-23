@@ -66,6 +66,7 @@ const appState = {
   currentView: "homeView",
   previousView: "homeView",
   couponCategory: "クーポン",
+  lineCouponCategory: "すべて",
   adminCouponFilter: "LINEクーポン",
   todayFortune: null,
   fortuneLoading: false,
@@ -78,6 +79,9 @@ const appState = {
   bookingMenuMode: "regular",
   bookingMenuCategory: "",
   bookingSelectedMenuIds: null,
+  bookingSelectedCouponIds: null,
+  bookingLineCouponsExpanded: false,
+  bookingLineCouponCategory: "すべて",
   bookingDraft: null,
   bookingSubmitBusy: false,
   bookingPendingRequestId: "",
@@ -112,6 +116,16 @@ const appState = {
     gacha: "pending"
   }
 };
+
+const LINE_COUPON_CATEGORY_ORDER = ["すべて", "カット", "カラー", "ストレート", "トリートメント", "ヘッドスパ", "エクステ", "その他"];
+const LINE_COUPON_CATEGORY_RULES = [
+  { category: "ストレート", keywords: ["酸性ストレート", "縮毛矯正", "ストレート", "縮毛"], primary: true },
+  { category: "エクステ", keywords: ["エクステ"], primary: true },
+  { category: "ヘッドスパ", keywords: ["ヘッドスパ", "スパ"], primary: true },
+  { category: "トリートメント", keywords: ["トリートメント", "髪質改善", "ケラチン"] },
+  { category: "カラー", keywords: ["白髪染め", "ハイライト", "カラー", "染め"] },
+  { category: "カット", keywords: ["カット"] }
+];
 
 const memberChartTabs = [
   { key: "basic", label: "基本情報" },
@@ -661,6 +675,10 @@ function bindNavigation() {
     const adminActionButton = event.target.closest("[data-admin-action]");
     const bookingActionButton = event.target.closest("[data-booking-action]");
     const bookingMenuCategoryButton = event.target.closest("[data-booking-menu-category]");
+    const bookingLineCouponToggle = event.target.closest("[data-booking-line-coupon-toggle]");
+    const bookingLineCouponCategoryButton = event.target.closest("[data-booking-line-coupon-category]");
+    const lineCouponCategoryButton = event.target.closest("[data-line-coupon-category]");
+    const lineCouponDetailButton = event.target.closest("[data-line-coupon-detail]");
     const gachaActionButton = event.target.closest("[data-gacha-action]");
     const couponActionButton = event.target.closest("[data-coupon-action]");
     const customerCheckInActionButton = event.target.closest("[data-customer-checkin-action]");
@@ -695,6 +713,28 @@ function bindNavigation() {
     if (bookingMenuCategoryButton) {
       appState.bookingMenuCategory = String(bookingMenuCategoryButton.dataset.bookingMenuCategory || "");
       renderBookingMenuChoices();
+      return;
+    }
+    if (bookingLineCouponToggle) {
+      appState.bookingLineCouponsExpanded = !appState.bookingLineCouponsExpanded;
+      renderBookingCouponChoices();
+      return;
+    }
+    if (bookingLineCouponCategoryButton) {
+      appState.bookingLineCouponCategory = String(bookingLineCouponCategoryButton.dataset.bookingLineCouponCategory || "すべて");
+      renderBookingCouponChoices();
+      return;
+    }
+    if (lineCouponCategoryButton) {
+      appState.lineCouponCategory = String(lineCouponCategoryButton.dataset.lineCouponCategory || "すべて");
+      renderCoupons();
+      return;
+    }
+    if (lineCouponDetailButton) {
+      const card = lineCouponDetailButton.closest("[data-line-coupon-card]");
+      const expanded = card?.classList.toggle("is-description-expanded") || false;
+      lineCouponDetailButton.textContent = expanded ? "閉じる" : "詳細を見る";
+      lineCouponDetailButton.setAttribute("aria-expanded", String(expanded));
       return;
     }
     if (gachaActionButton) {
@@ -797,6 +837,9 @@ function bindForms() {
       appState.bookingMenuMode = "regular";
       appState.bookingMenuCategory = "";
       appState.bookingSelectedMenuIds = null;
+      appState.bookingSelectedCouponIds = null;
+      appState.bookingLineCouponsExpanded = false;
+      appState.bookingLineCouponCategory = "すべて";
       appState.bookingDraft = null;
       appState.bookingPendingRequestId = "";
       renderBookingFormOptions();
@@ -881,6 +924,10 @@ function bindBookingFormInputs() {
     if (event.target.matches("input[name='menuIds']")) {
       updateBookingMenuSelection(event.target.value, event.target.checked);
       renderBookingMenuChoices();
+    }
+    if (event.target.matches("input[name='couponIds']")) {
+      updateBookingCouponSelection(event.target.value, event.target.checked);
+      renderBookingCouponChoices();
     }
     if (event.target.matches("[data-my-booking-selection]")) {
       syncMySelectionCheckboxToBooking(event.target);
@@ -1046,23 +1093,54 @@ function renderBookingCouponChoices(selectedIds = getBookingDraftSelectionIds("c
     return;
   }
   const coupons = getBookableMyLineCoupons(getBookingMenuContext());
-  const selected = new Set(selectedIds.map(String));
-  container.innerHTML = coupons.length ? coupons.map((coupon) => `
-    <label class="menu-choice-card">
-      <input type="checkbox" name="couponIds" value="${escapeHtml(coupon.couponId)}" ${selected.has(String(coupon.couponId)) ? "checked" : ""}>
-      <span>
-        <small>LINEクーポン</small>
+  if (Array.isArray(selectedIds)) appState.bookingSelectedCouponIds = [...new Set(selectedIds.map(String))];
+  if (!Array.isArray(appState.bookingSelectedCouponIds)) {
+    appState.bookingSelectedCouponIds = getBookingDraftSelectionIds("couponIds");
+  }
+  const selected = new Set(appState.bookingSelectedCouponIds.map(String));
+  const activeCategory = LINE_COUPON_CATEGORY_ORDER.includes(appState.bookingLineCouponCategory)
+    ? appState.bookingLineCouponCategory
+    : "すべて";
+  appState.bookingLineCouponCategory = activeCategory;
+  const visibleCoupons = filterLineCouponsByCategory(coupons, activeCategory);
+  container.innerHTML = coupons.length ? `
+    <div class="line-coupon-booking-shell">
+      <button type="button" class="line-coupon-disclosure" data-booking-line-coupon-toggle aria-expanded="${appState.bookingLineCouponsExpanded}">
+        <span>LINEクーポンを選ぶ（${coupons.length}件）</span>
+        <small>${selected.size ? `選択中 ${selected.size}件` : "任意"}</small>
+      </button>
+      <div class="line-coupon-booking-panel" ${appState.bookingLineCouponsExpanded ? "" : "hidden"}>
+        ${lineCouponCategoryButtonsHtml(coupons, activeCategory, "data-booking-line-coupon-category", "予約用LINEクーポンのカテゴリー")}
+        <div class="line-coupon-booking-list">
+          ${visibleCoupons.map((coupon) => bookingLineCouponCardHtml(coupon, selected.has(String(coupon.couponId)))).join("") || `<p class="soft-note">このカテゴリーにクーポンはありません。</p>`}
+        </div>
+      </div>
+    </div>
+  ` : `<p class="soft-note">利用できるクーポンはありません。</p>`;
+}
+
+function bookingLineCouponCardHtml(coupon, selected) {
+  const couponId = String(coupon.couponId || "");
+  return `
+    <article class="menu-choice-card line-coupon-booking-card ${selected ? "is-selected" : ""}" data-line-coupon-card>
+      <input id="booking-line-coupon-${escapeHtml(couponId)}" type="checkbox" name="couponIds" value="${escapeHtml(couponId)}" ${selected ? "checked" : ""}>
+      <label class="line-coupon-booking-content" for="booking-line-coupon-${escapeHtml(couponId)}">
+        <small>LINEクーポン・${escapeHtml(getLineCouponCategory(coupon))}</small>
         <strong>${escapeHtml(coupon.title)}</strong>
-        <small>${escapeHtml(coupon.description || "LINE公式クーポン")}</small>
+        <p class="line-coupon-description">${escapeHtml(coupon.description || coupon.message || "LINE公式クーポン")}</p>
         <em>期限 ${escapeHtml(formatDateUntil(coupon.validUntil || coupon.endDate))}</em>
-      </span>
-    </label>
-  `).join("") : `<p class="soft-note">利用できるクーポンはありません。</p>`;
+      </label>
+      ${lineCouponDetailButtonHtml(coupon)}
+    </article>
+  `;
 }
 
 function getBookingDraftSelectionIds(name) {
   if (name === "menuIds" && Array.isArray(appState.bookingSelectedMenuIds)) {
     return appState.bookingSelectedMenuIds.map(String);
+  }
+  if (name === "couponIds" && Array.isArray(appState.bookingSelectedCouponIds)) {
+    return appState.bookingSelectedCouponIds.map(String);
   }
   const form = document.getElementById("bookingForm");
   const checked = form ? [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((input) => input.value) : [];
@@ -1077,6 +1155,14 @@ function updateBookingMenuSelection(menuId, checked) {
   else selected.delete(String(menuId));
   appState.bookingSelectedMenuIds = [...selected];
   if (appState.bookingDraft) appState.bookingDraft.menuIds = [...selected];
+}
+
+function updateBookingCouponSelection(couponId, checked) {
+  const selected = new Set(getBookingDraftSelectionIds("couponIds"));
+  if (checked) selected.add(String(couponId));
+  else selected.delete(String(couponId));
+  appState.bookingSelectedCouponIds = [...selected];
+  if (appState.bookingDraft) appState.bookingDraft.couponIds = [...selected];
 }
 
 function renderBookingMySelectionChoices() {
@@ -1114,7 +1200,6 @@ function renderBookingMySelectionChoices() {
 function syncMySelectionCheckboxToBooking(checkbox) {
   const name = checkbox.dataset.itemType === "coupon" ? "couponIds" : "menuIds";
   const itemId = String(checkbox.dataset.itemId || "");
-  const form = document.getElementById("bookingForm");
   if (name === "menuIds") {
     updateBookingMenuSelection(itemId, checkbox.checked);
     renderBookingMenuChoices();
@@ -1123,13 +1208,8 @@ function syncMySelectionCheckboxToBooking(checkbox) {
     updateBookingConfirm();
     return;
   }
-  const sourceInput = [...form.querySelectorAll(`input[name="${name}"]`)].find((input) => String(input.value) === itemId);
-  if (!sourceInput) {
-    checkbox.checked = false;
-    showToast("この項目は現在予約で選択できません。");
-    return;
-  }
-  sourceInput.checked = checkbox.checked;
+  updateBookingCouponSelection(itemId, checkbox.checked);
+  renderBookingCouponChoices();
   captureBookingDraft();
   renderBookingMySelectionChoices();
   updateBookingConfirm();
@@ -1149,7 +1229,7 @@ function captureBookingDraft() {
     customMenu: String(data.get("customMenu") || ""),
     memo: String(data.get("memo") || ""),
     menuIds: [...new Set(getBookingDraftSelectionIds("menuIds"))],
-    couponIds: [...new Set(data.getAll("couponIds").map(String))]
+    couponIds: [...new Set(getBookingDraftSelectionIds("couponIds"))]
   };
 }
 
@@ -1175,6 +1255,7 @@ function restoreBookingDraft() {
   form.elements.memo.value = draft.memo || "";
   appState.bookingMenuMode = draft.menuMode || "regular";
   appState.bookingSelectedMenuIds = [...new Set((draft.menuIds || []).map(String))];
+  appState.bookingSelectedCouponIds = [...new Set((draft.couponIds || []).map(String))];
   renderBookingMenuChoices(draft.menuIds || []);
   renderBookingCouponChoices(draft.couponIds || []);
   renderBookingMySelectionChoices();
@@ -1193,6 +1274,7 @@ function startBookingFromMySelections() {
     couponIds: selections.filter((item) => item.type === "coupon").map((item) => String(item.itemId))
   };
   appState.bookingSelectedMenuIds = [...appState.bookingDraft.menuIds];
+  appState.bookingSelectedCouponIds = [...appState.bookingDraft.couponIds];
   appState.bookingMenuCategory = "";
   appState.bookingMenuMode = "regular";
   showView("booking");
@@ -1351,7 +1433,7 @@ function getSelectedReservationMenus(form) {
 }
 
 function getSelectedBookingCoupons(form) {
-  const ids = form.getAll("couponIds").map(String);
+  const ids = getBookingDraftSelectionIds("couponIds");
   const context = {
     staffId: String(form.get("staff") || ""),
     dateTime: String(form.get("firstDateTime") || "")
@@ -3313,7 +3395,17 @@ function renderCoupons() {
       couponList.innerHTML = `<p class="soft-note">${appState.couponMasterSyncStatus === "unavailable" ? "クーポン情報を取得できませんでした。" : "クーポン情報を取得しています…"}</p>`;
       return;
     }
-    couponList.innerHTML = lineCoupons.map(lineCouponSelectionCardHtml).join("") || "<p class=\"soft-note\">現在表示できるクーポンはありません。</p>";
+    const activeCategory = LINE_COUPON_CATEGORY_ORDER.includes(appState.lineCouponCategory) ? appState.lineCouponCategory : "すべて";
+    appState.lineCouponCategory = activeCategory;
+    const visibleCoupons = filterLineCouponsByCategory(lineCoupons, activeCategory);
+    couponList.innerHTML = lineCoupons.length ? `
+      <section class="line-coupon-page-filter">
+        ${lineCouponCategoryButtonsHtml(lineCoupons, activeCategory, "data-line-coupon-category", "LINEクーポンのカテゴリー")}
+      </section>
+      <div class="line-coupon-page-list">
+        ${visibleCoupons.map(lineCouponSelectionCardHtml).join("") || `<p class="soft-note">このカテゴリーにクーポンはありません。</p>`}
+      </div>
+    ` : "<p class=\"soft-note\">現在表示できるクーポンはありません。</p>";
     return;
   }
   if (selected === "通常メニュー") {
@@ -3330,6 +3422,60 @@ function renderCoupons() {
       <button class="primary-button" type="button" data-coupon-action="book" ${mySelections.length ? "" : "disabled"}>${mySelections.length === 1 && mySelections[0].type === "coupon" ? "このクーポンを使って予約する" : "この内容で予約する"}</button>
     </div>
   `;
+}
+
+function normalizeLineCouponCategoryText(value) {
+  return String(value || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+}
+
+function getLineCouponCategory(coupon) {
+  const titleCategory = findLineCouponCategoryMatch(normalizeLineCouponCategoryText(coupon?.title));
+  if (titleCategory) return titleCategory;
+  const descriptionCategory = findLineCouponCategoryMatch(normalizeLineCouponCategoryText([
+    coupon?.description,
+    coupon?.message,
+    coupon?.condition,
+    coupon?.usageCondition,
+    coupon?.targetMenu
+  ].filter(Boolean).join(" ")));
+  return descriptionCategory || "その他";
+}
+
+function findLineCouponCategoryMatch(text) {
+  if (!text) return "";
+  const matches = LINE_COUPON_CATEGORY_RULES.map((rule, ruleIndex) => {
+    const positions = rule.keywords
+      .map((keyword) => text.indexOf(normalizeLineCouponCategoryText(keyword)))
+      .filter((position) => position >= 0);
+    return positions.length ? { rule, ruleIndex, position: Math.min(...positions) } : null;
+  }).filter(Boolean);
+  const primaryMatch = matches.find((match) => match.rule.primary);
+  if (primaryMatch) return primaryMatch.rule.category;
+  matches.sort((a, b) => a.position - b.position || a.ruleIndex - b.ruleIndex);
+  return matches[0]?.rule.category || "";
+}
+
+function filterLineCouponsByCategory(coupons, category) {
+  if (category === "すべて") return coupons;
+  return coupons.filter((coupon) => getLineCouponCategory(coupon) === category);
+}
+
+function lineCouponCategoryButtonsHtml(coupons, activeCategory, dataAttribute, ariaLabel) {
+  return `
+    <div class="booking-menu-category-chips line-coupon-category-chips" role="group" aria-label="${escapeHtml(ariaLabel)}">
+      ${LINE_COUPON_CATEGORY_ORDER.map((category) => {
+        const count = category === "すべて" ? coupons.length : filterLineCouponsByCategory(coupons, category).length;
+        return `<button type="button" class="booking-menu-category-chip ${activeCategory === category ? "is-active" : ""}" ${dataAttribute}="${escapeHtml(category)}" aria-pressed="${activeCategory === category}" ${count ? "" : "disabled"}>${escapeHtml(category)} <small>${count}</small></button>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function lineCouponDetailButtonHtml(coupon) {
+  const description = String(coupon?.description || coupon?.message || "").trim();
+  return description.length > 54
+    ? `<button type="button" class="line-coupon-detail-button" data-line-coupon-detail aria-expanded="false">詳細を見る</button>`
+    : "";
 }
 
 function getMySelections() {
@@ -3439,9 +3585,9 @@ function selectionButtonHtml(type, itemId) {
 function lineCouponSelectionCardHtml(coupon) {
   const expiry = coupon.expires || coupon.validUntil || coupon.endDate || coupon.endAt;
   return `
-    <article class="coupon-card compact-selection-card has-image">
+    <article class="coupon-card compact-selection-card has-image line-coupon-page-card" data-line-coupon-card>
       ${coupon.imageUrl ? `<img src="${escapeHtml(coupon.imageUrl)}" alt="${escapeHtml(coupon.title)}">` : ""}
-      <div class="compact-selection-body"><span>クーポン</span><h3>${escapeHtml(coupon.title)}</h3><p>${escapeHtml(coupon.description || coupon.message || "")}</p><small>有効期限：${escapeHtml(formatDateUntil(expiry))}</small></div>
+      <div class="compact-selection-body"><span>${escapeHtml(getLineCouponCategory(coupon))}</span><h3>${escapeHtml(coupon.title)}</h3><p class="line-coupon-description">${escapeHtml(coupon.description || coupon.message || "LINE公式クーポン")}</p>${lineCouponDetailButtonHtml(coupon)}<small>有効期限：${escapeHtml(formatDateUntil(expiry))}</small></div>
       <div class="compact-selection-action">${selectionButtonHtml("coupon", coupon.couponId)}</div>
     </article>
   `;

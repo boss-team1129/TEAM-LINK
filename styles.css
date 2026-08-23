@@ -1032,6 +1032,72 @@ p {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 8px 20px rgba(0, 0, 0, .18);
 }
 
+.booking-menu-category-chip:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+.line-coupon-booking-shell,
+.line-coupon-booking-panel,
+.line-coupon-booking-list,
+.line-coupon-page-filter,
+.line-coupon-page-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.line-coupon-booking-shell {
+  width: 100%;
+}
+
+.line-coupon-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 14px;
+  border: 1px solid rgba(228, 199, 126, .42);
+  border-radius: 16px;
+  color: #fff8e6;
+  background: linear-gradient(145deg, rgba(207, 158, 67, .26), rgba(255, 255, 255, .07));
+  font: inherit;
+  font-weight: 900;
+  text-align: left;
+}
+
+.line-coupon-disclosure::after {
+  content: "＋";
+  flex: 0 0 auto;
+  color: var(--gold-light);
+  font-size: 20px;
+}
+
+.line-coupon-disclosure[aria-expanded="true"]::after {
+  content: "−";
+}
+
+.line-coupon-disclosure small {
+  margin-left: auto;
+  color: rgba(255, 250, 239, .66);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.line-coupon-booking-panel {
+  padding-top: 2px;
+}
+
+.line-coupon-booking-panel[hidden] {
+  display: none;
+}
+
+.line-coupon-category-chips {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .booking-menu-selection-count {
   margin: 0;
   color: rgba(255, 250, 239, .68);
@@ -1109,6 +1175,69 @@ p {
   font-style: normal;
   font-weight: 850;
   line-height: 1.6;
+}
+
+.line-coupon-booking-card {
+  align-items: start;
+}
+
+.line-coupon-booking-content {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.line-coupon-booking-content strong {
+  color: #fff;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.line-coupon-booking-content small {
+  color: rgba(255,250,239,.62);
+  line-height: 1.5;
+}
+
+.line-coupon-booking-content em {
+  color: rgba(240, 213, 154, .82);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.line-coupon-description {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: rgba(255,250,239,.72);
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.is-description-expanded .line-coupon-description {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+.line-coupon-detail-button {
+  justify-self: start;
+  padding: 2px 0;
+  border: 0;
+  color: var(--gold-light);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.line-coupon-booking-card > .line-coupon-detail-button {
+  grid-column: 2;
 }
 
 .booking-my-coupon-panel {
@@ -2189,6 +2318,23 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+.line-coupon-page-filter {
+  padding: 12px;
+  border: 1px solid rgba(228, 199, 126, .24);
+  border-radius: 18px;
+  background: rgba(255,255,255,.045);
+}
+.line-coupon-page-card .line-coupon-detail-button {
+  margin-top: 1px;
+}
+.line-coupon-page-card .compact-selection-body p.line-coupon-description {
+  -webkit-line-clamp: 2;
+}
+.line-coupon-page-card.is-description-expanded .compact-selection-body p {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
 }
 .compact-selection-card .compact-selection-body > span {
   min-height: 22px;
