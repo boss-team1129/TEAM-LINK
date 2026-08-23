@@ -101,6 +101,12 @@ def clipped_image(image_path: Path, clip_id: str, x, y, width, height, radius=38
         clip-path="url(#{clip_id})" xlink:href="{uri}"/>'''
 
 
+def contained_image(image_path: Path, x, y, width, height) -> str:
+    uri = os.path.relpath(image_path, SOURCE).replace(os.sep, "/")
+    return f'''<image x="{x}" y="{y}" width="{width}" height="{height}"
+      preserveAspectRatio="xMidYMid meet" xlink:href="{uri}"/>'''
+
+
 def inline_image_references(svg_text: str) -> str:
     """Embed referenced images only in the temporary SVG passed to sips.
 
@@ -114,6 +120,8 @@ def inline_image_references(svg_text: str) -> str:
         HOME / "fortune.png",
         HOME / "mypage.png",
         HOME / "lounge.png",
+        OUT / "shopping.png",
+        OUT / "instagram.png",
         SOURCE / "extension-hair-crop.jpg",
     ]
     rendered = svg_text
@@ -198,19 +206,19 @@ def service_svg() -> str:
         </g>''')
 
     parts.append(card(1210, 670, 590, 956, "url(#pinkCard)", 54))
-    parts.append(gift_icon())
-    parts.append('''<text x="1505" y="1225" text-anchor="middle" class="serif brown" font-size="62" font-weight="800">おすすめ商品</text>
-      <text x="1505" y="1303" text-anchor="middle" class="muted" font-size="31" font-weight="700">サロンおすすめの商品を</text>
-      <text x="1505" y="1351" text-anchor="middle" class="muted" font-size="31" font-weight="700">チェック</text>
-      <path d="M1405 1430h200" stroke="#c49a52" stroke-width="4"/>
-      <text x="1505" y="1518" text-anchor="middle" class="goldText" font-size="36" font-weight="800">詳しく見る ›</text>''')
+    parts.append(contained_image(OUT / "shopping.png", 1225, 700, 560, 520))
+    parts.append('''<text x="1505" y="1320" text-anchor="middle" class="serif brown" font-size="73" font-weight="900">おすすめ商品</text>
+      <text x="1505" y="1402" text-anchor="middle" class="muted" font-size="32" font-weight="700">サロンおすすめの商品を</text>
+      <text x="1505" y="1452" text-anchor="middle" class="muted" font-size="32" font-weight="700">チェック</text>
+      <path d="M1405 1502h200" stroke="#c49a52" stroke-width="4"/>
+      <text x="1505" y="1572" text-anchor="middle" class="goldText" font-size="38" font-weight="800">詳しく見る ›</text>''')
 
     parts.append(card(1830, 670, 610, 956, "url(#lavenderCard)", 54))
-    parts.append(instagram_icon())
-    parts.append('''<text x="2135" y="1215" text-anchor="middle" class="serif brown" font-size="67" font-weight="800">Instagram</text>
-      <text x="2135" y="1295" text-anchor="middle" class="muted" font-size="33" font-weight="700">最新情報をチェック</text>
-      <rect x="1942" y="1416" width="386" height="82" rx="41" fill="#fffdf9" stroke="#bca6cd" stroke-width="3"/>
-      <text x="2135" y="1470" text-anchor="middle" fill="#8d759e" font-size="29" font-weight="800">公式Instagramを見る ›</text>''')
+    parts.append(contained_image(OUT / "instagram.png", 1855, 690, 560, 535))
+    parts.append('''<text x="2135" y="1320" text-anchor="middle" class="serif brown" font-size="78" font-weight="900">Instagram</text>
+      <text x="2135" y="1408" text-anchor="middle" class="muted" font-size="35" font-weight="700">最新情報をチェック</text>
+      <rect x="1935" y="1480" width="400" height="88" rx="44" fill="#fffdf9" stroke="#bca6cd" stroke-width="3"/>
+      <text x="2135" y="1538" text-anchor="middle" fill="#8d759e" font-size="30" font-weight="800">公式Instagramを見る ›</text>''')
     parts.append('</svg>')
     return ''.join(parts)
 

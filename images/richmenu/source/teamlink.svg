@@ -79,23 +79,16 @@
         </g><g filter="url(#cardShadow)">
       <rect x="1210" y="670" width="590" height="956" rx="54" fill="url(#pinkCard)" stroke="#c9a45e" stroke-width="4"/>
       <rect x="1217" y="677" width="576" height="942" rx="47" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="4"/>
-    </g><g transform="translate(1505 940)" filter="url(#smallShadow)">
-      <path d="M-105 5h210v180h-210z" fill="#fffaf0" stroke="#bd8b37" stroke-width="10"/>
-      <path d="M-128-42h256v68h-256z" fill="url(#gold)" stroke="#bd8b37" stroke-width="8"/>
-      <path d="M0-42v227M-115 26h230" stroke="#bd8b37" stroke-width="10"/>
-      <path d="M-6-43c-86-7-110-79-49-92 46-10 66 39 55 92M6-43c86-7 110-79 49-92-46-10-66 39-55 92" fill="none" stroke="#d1a45b" stroke-width="12"/>
-    </g><text x="1505" y="1225" text-anchor="middle" class="serif brown" font-size="62" font-weight="800">おすすめ商品</text>
-      <text x="1505" y="1303" text-anchor="middle" class="muted" font-size="31" font-weight="700">サロンおすすめの商品を</text>
-      <text x="1505" y="1351" text-anchor="middle" class="muted" font-size="31" font-weight="700">チェック</text>
-      <path d="M1405 1430h200" stroke="#c49a52" stroke-width="4"/>
-      <text x="1505" y="1518" text-anchor="middle" class="goldText" font-size="36" font-weight="800">詳しく見る ›</text><g filter="url(#cardShadow)">
+    </g><image x="1225" y="700" width="560" height="520"
+      preserveAspectRatio="xMidYMid meet" xlink:href="../shopping.png"/><text x="1505" y="1320" text-anchor="middle" class="serif brown" font-size="73" font-weight="900">おすすめ商品</text>
+      <text x="1505" y="1402" text-anchor="middle" class="muted" font-size="32" font-weight="700">サロンおすすめの商品を</text>
+      <text x="1505" y="1452" text-anchor="middle" class="muted" font-size="32" font-weight="700">チェック</text>
+      <path d="M1405 1502h200" stroke="#c49a52" stroke-width="4"/>
+      <text x="1505" y="1572" text-anchor="middle" class="goldText" font-size="38" font-weight="800">詳しく見る ›</text><g filter="url(#cardShadow)">
       <rect x="1830" y="670" width="610" height="956" rx="54" fill="url(#lavenderCard)" stroke="#c9a45e" stroke-width="4"/>
       <rect x="1837" y="677" width="596" height="942" rx="47" fill="none" stroke="#ffffff" stroke-opacity=".78" stroke-width="4"/>
-    </g><g transform="translate(2135 940)" filter="url(#smallShadow)">
-      <rect x="-108" y="-108" width="216" height="216" rx="58" fill="#fffaf8" stroke="#b98757" stroke-width="11"/>
-      <circle cx="0" cy="0" r="53" fill="none" stroke="#b98757" stroke-width="11"/>
-      <circle cx="70" cy="-70" r="14" fill="#b98757"/>
-    </g><text x="2135" y="1215" text-anchor="middle" class="serif brown" font-size="67" font-weight="800">Instagram</text>
-      <text x="2135" y="1295" text-anchor="middle" class="muted" font-size="33" font-weight="700">最新情報をチェック</text>
-      <rect x="1942" y="1416" width="386" height="82" rx="41" fill="#fffdf9" stroke="#bca6cd" stroke-width="3"/>
-      <text x="2135" y="1470" text-anchor="middle" fill="#8d759e" font-size="29" font-weight="800">公式Instagramを見る ›</text></svg>
+    </g><image x="1855" y="690" width="560" height="535"
+      preserveAspectRatio="xMidYMid meet" xlink:href="../instagram.png"/><text x="2135" y="1320" text-anchor="middle" class="serif brown" font-size="78" font-weight="900">Instagram</text>
+      <text x="2135" y="1408" text-anchor="middle" class="muted" font-size="35" font-weight="700">最新情報をチェック</text>
+      <rect x="1935" y="1480" width="400" height="88" rx="44" fill="#fffdf9" stroke="#bca6cd" stroke-width="3"/>
+      <text x="2135" y="1538" text-anchor="middle" fill="#8d759e" font-size="30" font-weight="800">公式Instagramを見る ›</text></svg>
