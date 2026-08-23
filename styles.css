@@ -4901,6 +4901,8 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
 .booking-notification-email-settings {
   display: grid;
   gap: 14px;
+  border-color: rgba(229, 196, 107, .48);
+  scroll-margin-top: 18px;
 }
 
 .booking-notification-email-settings > header {
@@ -4918,6 +4920,11 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
 .booking-notification-email-list {
   display: grid;
   gap: 8px;
+}
+
+.booking-notification-email-list-title {
+  color: var(--cream);
+  font-size: 13px;
 }
 
 .booking-notification-email-row {

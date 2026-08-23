@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260823-booking-email-2";
+const TEAM_LINK_FRONTEND_BUILD = "20260823-booking-email-3";
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -7098,17 +7098,18 @@ function renderAdminSettings() {
 function renderBookingNotificationEmailSettings(settings, status, canEdit) {
   const emails = Array.isArray(settings?.emails) ? settings.emails : [];
   return `
-    <article class="admin-preview booking-notification-email-settings">
+    <article class="admin-preview booking-notification-email-settings" id="bookingNotificationEmailSettings">
       <header>
         <div><p class="kicker">Booking email</p><h3>予約通知メール設定</h3></div>
         <span class="badge ${status === "ready" && emails.length ? "status-success" : "status-warning"}">${status === "ready" ? `${emails.length}件` : "確認中"}</span>
       </header>
-      <p class="soft-note">新しい予約希望が入ったとき、登録したすべてのスタッフへ同じ内容を送信します。</p>
+      <p class="soft-note">TEAM LINKから予約希望が入った際に通知するメールアドレスを管理します。</p>
       ${status === "loading" || status === "pending" ? `<p>本番Settingsを取得しています…</p>` : ""}
       ${status === "error" ? `<div class="admin-empty"><strong>予約通知メール設定を取得できませんでした</strong><button type="button" class="secondary-button" data-admin-action="reloadBookingNotificationSettings">再取得</button></div>` : ""}
       ${status === "ready" ? `
         ${canEdit ? `
           <div class="booking-notification-email-list">
+            <strong class="booking-notification-email-list-title">現在登録されているメールアドレス</strong>
             ${emails.map((email, index) => `
               <div class="booking-notification-email-row">
                 <span>${escapeHtml(email)}</span>
@@ -7122,7 +7123,7 @@ function renderBookingNotificationEmailSettings(settings, status, canEdit) {
             </label>
             <button type="button" class="secondary-button" data-admin-action="addBookingNotificationEmail">＋ メールアドレスを追加</button>
           </div>
-          <button type="button" class="primary-button" data-admin-action="saveBookingNotificationSettings" ${appState.bookingNotificationSettingsBusy ? "disabled" : ""}>${appState.bookingNotificationSettingsBusy ? "保存中…" : "保存"}</button>
+          <button type="button" class="primary-button" data-admin-action="saveBookingNotificationSettings" ${appState.bookingNotificationSettingsBusy ? "disabled" : ""}>${appState.bookingNotificationSettingsBusy ? "保存中…" : "予約通知メール設定を保存"}</button>
         ` : `<p class="soft-note">予約通知先の変更は管理者のみ行えます。現在 ${emails.length}件登録されています。</p>`}
       ` : ""}
     </article>
