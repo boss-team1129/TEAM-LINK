@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260823-booking-email-3";
+const TEAM_LINK_FRONTEND_BUILD = "20260823-customer-ready-1";
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -2341,6 +2341,7 @@ function mergeCurrentMemberCache(profile) {
     lineUserId: profile.lineUserId,
     nickname: profile.nickname,
     realName: profile.realName || profile.nickname,
+    birthDate: profile.birthDate || "",
     lastVisitDate: profile.lastVisitDate,
     visitCount: Number(profile.visitCount || 0)
   };
@@ -2361,6 +2362,7 @@ async function initializeLinkedIdentityFromUrl() {
     const result = await apiRequest("getLinkedMemberProfile", { memberId, lineUserId, memberToken });
     const member = result.data?.member || result.member;
     if (!member?.memberId || !member?.lineUserId) throw new Error("本人情報を取得できませんでした。");
+    const linkedBirthDate = normalizeLinkedMemberBirthDate(member.birthDate || current.birthDate || "");
     const nextProfile = {
       ...defaultProfile,
       ...current,
@@ -2372,10 +2374,12 @@ async function initializeLinkedIdentityFromUrl() {
       memberToken,
       nickname: member.nickname || member.realName || current.nickname,
       realName: member.realName || member.nickname || current.realName,
+      birthDate: linkedBirthDate,
       lastVisitDate: member.lastVisitDate || "",
       visitCount: Number(member.visitCount || 0)
     };
     writeJson(STORAGE_KEYS.profile, nextProfile);
+    if (linkedBirthDate) localStorage.setItem(STORAGE_KEYS.birthDate, linkedBirthDate);
     mergeCurrentMemberCache(nextProfile);
     if (hasIdentityParams) {
       params.delete("memberId");
@@ -2388,6 +2392,17 @@ async function initializeLinkedIdentityFromUrl() {
     console.error("[TEAM LINK LINKED IDENTITY FAILED]", error);
     showToast("本人情報を確認できませんでした。LINEからもう一度開いてください。");
   }
+}
+
+function normalizeLinkedMemberBirthDate(value) {
+  const match = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return "";
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return "";
+  return `${match[1]}-${match[2]}-${match[3]}`;
 }
 
 function warmTeamFortuneCache(birthDate) {
