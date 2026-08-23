@@ -1338,6 +1338,59 @@ p {
   resize: vertical;
 }
 
+.field.is-booking-invalid {
+  padding: 10px;
+  border: 2px solid rgba(255, 116, 116, .92);
+  border-radius: 18px;
+  background: rgba(132, 25, 25, .16);
+  scroll-margin-block: 110px;
+}
+
+.field.is-booking-invalid input,
+.field.is-booking-invalid select,
+.field.is-booking-invalid textarea {
+  border-color: #d73f3f;
+  box-shadow: 0 0 0 3px rgba(215, 63, 63, .16);
+}
+
+.booking-field-error {
+  display: block;
+  color: #ffb9b9;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.55;
+}
+
+.booking-validation-summary {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 2px solid rgba(255, 116, 116, .92);
+  border-radius: 18px;
+  color: #fff4f1;
+  background: linear-gradient(145deg, rgba(139, 31, 31, .78), rgba(72, 18, 18, .86));
+  box-shadow: 0 12px 24px rgba(0, 0, 0, .2);
+}
+
+.booking-validation-summary[hidden] {
+  display: none;
+}
+
+.booking-validation-summary strong {
+  font-size: 15px;
+}
+
+.booking-validation-summary ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 20px;
+  color: #ffd7d2;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
 .booking-datetime-field,
 .booking-datetime-grid,
 .booking-datetime-part {

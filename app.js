@@ -82,6 +82,7 @@ const appState = {
   bookingSelectedCouponIds: null,
   bookingLineCouponsExpanded: false,
   bookingLineCouponCategory: "すべて",
+  bookingValidationVisible: false,
   bookingDraft: null,
   bookingSubmitBusy: false,
   bookingPendingRequestId: "",
@@ -840,6 +841,7 @@ function bindForms() {
       appState.bookingSelectedCouponIds = null;
       appState.bookingLineCouponsExpanded = false;
       appState.bookingLineCouponCategory = "すべて";
+      appState.bookingValidationVisible = false;
       appState.bookingDraft = null;
       appState.bookingPendingRequestId = "";
       renderBookingFormOptions();
@@ -919,6 +921,7 @@ function bindBookingFormInputs() {
     renderBookingCouponChoices();
     renderBookingMySelectionChoices();
     updateBookingConfirm();
+    refreshBookingValidationFeedback();
   });
   form?.addEventListener("change", (event) => {
     if (event.target.matches("input[name='menuIds']")) {
@@ -941,12 +944,14 @@ function bindBookingFormInputs() {
     }
     renderBookingMySelectionChoices();
     if (event.target.matches("input, select, textarea")) updateBookingConfirm();
+    refreshBookingValidationFeedback();
   });
   form?.addEventListener("input", (event) => {
     if (event.target.matches("input, textarea")) {
       if (event.target.matches("#bookingFirstDate, #bookingSecondDate")) syncBookingDateTimeFields();
       captureBookingDraft();
       updateBookingConfirm();
+      refreshBookingValidationFeedback();
     }
   });
   inputs.forEach((input) => input?.addEventListener("blur", updateBookingConfirm));
@@ -1011,14 +1016,19 @@ function renderBookingFormOptions() {
   }
   const staffSelect = document.getElementById("bookingStaffSelect");
   if (staffSelect) {
+    const currentStaffId = String(staffSelect.value || "");
+    const reservableStaff = settings.staff
+      .filter((staff) => staff.isReservable !== false)
+      .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
     staffSelect.innerHTML = `
       <option value="">選択してください</option>
-      ${settings.staff
-        .filter((staff) => staff.isReservable !== false)
-        .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0))
+      ${reservableStaff
         .map((staff) => `<option value="${escapeHtml(staff.staffId)}">${escapeHtml(staff.name)}</option>`)
         .join("")}
     `;
+    const noPreference = reservableStaff.find((staff) => String(staff.name || "").includes("指名なし"));
+    const initialStaffId = currentStaffId || String(noPreference?.staffId || "");
+    if ([...staffSelect.options].some((option) => option.value === initialStaffId)) staffSelect.value = initialStaffId;
   }
   const modeSelect = document.getElementById("bookingMenuMode");
   if (modeSelect) modeSelect.value = appState.bookingMenuMode;
@@ -1325,9 +1335,11 @@ function buildBookingRequestFromForm(formElement) {
   const userKey = getCurrentUserKey();
   const validation = validateBookingForm(form);
   if (!validation.ok) {
-    showToast(validation.message);
+    showBookingValidationErrors(formElement, validation);
     return null;
   }
+  clearBookingValidationErrors(formElement);
+  appState.bookingValidationVisible = false;
   const selectedMenus = getSelectedReservationMenus(form);
   const selectedCoupons = getSelectedBookingCoupons(form);
   const menuMode = String(form.get("menuMode") || "regular");
@@ -1385,27 +1397,102 @@ function validateBookingForm(form) {
   const firstTime = String(form.get("firstTime") || "");
   const secondDate = String(form.get("secondDate") || "");
   const secondTime = String(form.get("secondTime") || "");
-  if (!customerName) return { ok: false, message: "お客様名を入力してください。" };
-  if (!firstDate || !firstTime) return { ok: false, message: "第一希望の日付と時間を選択してください。" };
-  if ((secondDate && !secondTime) || (!secondDate && secondTime)) return { ok: false, message: "第二希望は日付と時間の両方を選択してください。" };
-  if (!first) return { ok: false, message: "第一希望日時を入力してください。" };
-  if (second && first === second) return { ok: false, message: "第一希望と第二希望は別の日時を選んでください。" };
-  const firstCheck = validateReservableDateTime(first);
-  if (!firstCheck.ok) return { ok: false, message: `第一希望：${firstCheck.message}` };
+  const issues = [];
+  const addIssue = (fieldId, message) => {
+    if (!issues.some((issue) => issue.fieldId === fieldId && issue.message === message)) issues.push({ fieldId, message });
+  };
+  if (!customerName) addIssue("bookingCustomerNameField", "お客様名を入力してください");
+  if (!firstDate || !firstTime) {
+    addIssue("bookingFirstDateTimeField", "第一希望の日付と時間を選択してください");
+  } else if (!first) {
+    addIssue("bookingFirstDateTimeField", "第一希望日時を入力してください");
+  } else {
+    const firstCheck = validateReservableDateTime(first);
+    if (!firstCheck.ok) addIssue("bookingFirstDateTimeField", `第一希望：${firstCheck.message}`);
+  }
+  if ((secondDate && !secondTime) || (!secondDate && secondTime)) {
+    addIssue("bookingSecondDateTimeField", "第二希望は日付と時間の両方を選択してください");
+  }
+  if (second && first === second) addIssue("bookingSecondDateTimeField", "第一希望と第二希望は別の日時を選んでください");
   if (second) {
     const secondCheck = validateReservableDateTime(second);
-    if (!secondCheck.ok) return { ok: false, message: `第二希望：${secondCheck.message}` };
+    if (!secondCheck.ok) addIssue("bookingSecondDateTimeField", `第二希望：${secondCheck.message}`);
   }
-  if (!String(form.get("staff") || "")) return { ok: false, message: "希望担当者を選択してください。" };
+  if (!String(form.get("staff") || "")) addIssue("bookingStaffField", "担当希望を選択してください");
   const mode = String(form.get("menuMode") || "regular");
   if (mode === "consult") {
-    if (!String(form.get("customMenu") || "").trim()) return { ok: false, message: "相談したい内容を入力してください。" };
-    return { ok: true };
+    if (!String(form.get("customMenu") || "").trim()) addIssue("bookingCustomMenuField", "相談したい内容を入力してください");
+  } else {
+    const selectedMenus = getSelectedReservationMenus(form);
+    const selectedCoupons = getSelectedBookingCoupons(form);
+    if (!selectedMenus.length && !selectedCoupons.length) addIssue("bookingMenuSelectionField", "メニューまたはクーポンを1つ以上選択してください");
   }
-  const selectedMenus = getSelectedReservationMenus(form);
-  const selectedCoupons = getSelectedBookingCoupons(form);
-  if (!selectedMenus.length && !selectedCoupons.length) return { ok: false, message: "メニューまたはクーポンを1つ以上選択してください。" };
-  return { ok: true };
+  return {
+    ok: issues.length === 0,
+    issues,
+    message: issues.length === 1 ? issues[0].message : "入力内容をご確認ください"
+  };
+}
+
+function clearBookingValidationErrors(formElement = document.getElementById("bookingForm")) {
+  if (!formElement) return;
+  formElement.querySelectorAll(".booking-field-error").forEach((node) => node.remove());
+  formElement.querySelectorAll(".is-booking-invalid").forEach((field) => field.classList.remove("is-booking-invalid"));
+  formElement.querySelectorAll("[aria-invalid='true']").forEach((control) => control.removeAttribute("aria-invalid"));
+  const summary = document.getElementById("bookingValidationSummary");
+  if (summary) {
+    summary.hidden = true;
+    summary.innerHTML = "";
+  }
+}
+
+function showBookingValidationErrors(formElement, validation, scrollToFirst = true) {
+  clearBookingValidationErrors(formElement);
+  const issues = Array.isArray(validation?.issues) ? validation.issues : [];
+  if (!issues.length) {
+    appState.bookingValidationVisible = false;
+    return;
+  }
+  appState.bookingValidationVisible = true;
+  const summary = document.getElementById("bookingValidationSummary");
+  if (summary) {
+    summary.hidden = false;
+    summary.innerHTML = `
+      <strong>入力内容をご確認ください</strong>
+      <ul>${issues.map((issue) => `<li>${escapeHtml(issue.message)}</li>`).join("")}</ul>
+    `;
+  }
+  const issuesByField = new Map();
+  issues.forEach((issue) => {
+    if (!issuesByField.has(issue.fieldId)) issuesByField.set(issue.fieldId, []);
+    issuesByField.get(issue.fieldId).push(issue.message);
+  });
+  issuesByField.forEach((messages, fieldId) => {
+    const field = document.getElementById(fieldId);
+    if (!field) return;
+    field.classList.add("is-booking-invalid");
+    field.querySelectorAll("input, select, textarea").forEach((control) => control.setAttribute("aria-invalid", "true"));
+    field.insertAdjacentHTML("beforeend", `<small class="booking-field-error">${messages.map((message) => escapeHtml(message)).join("<br>")}</small>`);
+  });
+  if (scrollToFirst) showToast(validation.message || "入力内容をご確認ください");
+  if (!scrollToFirst) return;
+  const firstField = document.getElementById(issues[0].fieldId);
+  firstField?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  window.setTimeout(() => firstField?.querySelector("input, select, textarea, button")?.focus({ preventScroll: true }), 350);
+}
+
+function refreshBookingValidationFeedback() {
+  if (!appState.bookingValidationVisible) return;
+  const formElement = document.getElementById("bookingForm");
+  if (!formElement) return;
+  syncBookingDateTimeFields();
+  const validation = validateBookingForm(new FormData(formElement));
+  if (validation.ok) {
+    clearBookingValidationErrors(formElement);
+    appState.bookingValidationVisible = false;
+    return;
+  }
+  showBookingValidationErrors(formElement, validation, false);
 }
 
 function validateReservableDateTime(value) {
