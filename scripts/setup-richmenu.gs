@@ -5,6 +5,7 @@
  */
 const TEAM_LINK_RICHMENU_CONFIG = Object.freeze({
   version: "20260823-2",
+  serviceImageVersion: "20260823-3",
   publicUrl: "https://boss-team1129.github.io/TEAM-LINK/",
   kimikeaUrl: "https://boss-team1129.github.io/Kimikea-Connect/",
   recommendedProductsUrl: "https://fordays-shop.jp/?intro=vbej6z1xoyzppojfd277",
@@ -15,6 +16,65 @@ const TEAM_LINK_RICHMENU_CONFIG = Object.freeze({
     service: "https://boss-team1129.github.io/TEAM-LINK/images/richmenu/teamlink.png"
   }
 });
+
+/**
+ * Replaces only the TEAM LINK tab image/menu definition.
+ * The main rich menu, default menu, existing aliases, and old menus are preserved.
+ */
+function updateTeamLinkServiceRichMenuImage() {
+  const config = TEAM_LINK_RICHMENU_CONFIG;
+  const token = String(PropertiesService.getScriptProperties().getProperty("LINE_CHANNEL_ACCESS_TOKEN") || "").trim();
+  if (!token) throw new Error("LINE_CHANNEL_ACCESS_TOKEN がScript Propertiesに設定されていません。");
+
+  const before = listTeamLinkRichMenus_(token);
+  const mainAliasBefore = before.aliases.find(function(alias) {
+    return alias.richMenuAliasId === config.aliases.main;
+  });
+  const serviceAliasBefore = before.aliases.find(function(alias) {
+    return alias.richMenuAliasId === config.aliases.service;
+  });
+  if (!mainAliasBefore || !serviceAliasBefore) throw new Error("既存のTEAM LINK aliasを確認できませんでした。");
+  const defaultBefore = lineRichMenuRequest_(token, "https://api.line.me/v2/bot/user/all/richmenu", {
+    method: "get", muteHttpExceptions: true
+  }, [200]);
+
+  const definition = buildTeamLinkRichMenuDefinitions_().service;
+  definition.name = "TEAM LINK SERVICE " + config.serviceImageVersion;
+  const serviceId = ensureTeamLinkRichMenu_(token, definition, config.images.service, before.richMenus);
+  upsertTeamLinkRichMenuAlias_(token, config.aliases.service, serviceId, before.aliases);
+
+  const after = listTeamLinkRichMenus_(token);
+  const mainAliasAfter = after.aliases.find(function(alias) {
+    return alias.richMenuAliasId === config.aliases.main;
+  });
+  const serviceAliasAfter = after.aliases.find(function(alias) {
+    return alias.richMenuAliasId === config.aliases.service;
+  });
+  const defaultAfter = lineRichMenuRequest_(token, "https://api.line.me/v2/bot/user/all/richmenu", {
+    method: "get", muteHttpExceptions: true
+  }, [200]);
+  if (!mainAliasAfter || mainAliasAfter.richMenuId !== mainAliasBefore.richMenuId) {
+    throw new Error("安全確認エラー: teamlink-main aliasが変化しました。");
+  }
+  if (String(defaultAfter.body.richMenuId || "") !== String(defaultBefore.body.richMenuId || "")) {
+    throw new Error("安全確認エラー: デフォルトリッチメニューが変化しました。");
+  }
+  if (!serviceAliasAfter || serviceAliasAfter.richMenuId !== serviceId) {
+    throw new Error("teamlink-service aliasの切替を確認できませんでした。");
+  }
+  const result = {
+    success: true,
+    previousServiceRichMenuId: serviceAliasBefore.richMenuId,
+    serviceRichMenuId: serviceId,
+    serviceAlias: serviceAliasAfter,
+    mainAlias: mainAliasAfter,
+    defaultRichMenuId: String(defaultAfter.body.richMenuId || ""),
+    richMenuCount: after.richMenus.length,
+    note: "旧リッチメニューは削除していません"
+  };
+  console.log("[RICHMENU_SERVICE_IMAGE_UPDATE_COMPLETE] " + JSON.stringify(result));
+  return result;
+}
 
 function setupTeamLinkRichMenus() {
   if (!TEAM_LINK_RICHMENU_CONFIG.instagramUrl) {
