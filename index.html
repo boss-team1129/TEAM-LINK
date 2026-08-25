@@ -13,7 +13,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&amp;family=Noto+Serif+JP:wght@500;600;700&amp;display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 64'%3E%3Crect width='96' height='64' rx='18' fill='%23130f0b'/%3E%3Ctext x='48' y='38' text-anchor='middle' font-size='12' font-family='Georgia, serif' letter-spacing='3' fill='%23d9b46c'%3ETEAM LINK%3C/text%3E%3C/svg%3E">
   <title>TEAM LINK | TEAM hair お客様専用アプリ</title>
-  <link rel="stylesheet" href="styles.css?v=20260823-richmenu-1">
+  <link rel="stylesheet" href="styles.css?v=20260825-booking-datetime-1">
 </head>
 <body>
   <div class="splash-screen" id="splashScreen" aria-hidden="true">
@@ -170,38 +170,46 @@
             </div>
             <input id="bookingSecondDateTime" name="secondDateTime" type="hidden">
           </div>
-          <label class="field" id="bookingStaffField">4. 希望担当者
+          <div class="field booking-datetime-field" id="bookingThirdDateTimeField">
+            <span>4. 第三希望日時（任意）</span>
+            <div class="booking-datetime-grid">
+              <label class="booking-datetime-part"><span>日付</span><input id="bookingThirdDate" name="thirdDate" type="date"></label>
+              <label class="booking-datetime-part"><span>時間</span><select id="bookingThirdTime" name="thirdTime"></select></label>
+            </div>
+            <input id="bookingThirdDateTime" name="thirdDateTime" type="hidden">
+          </div>
+          <label class="field" id="bookingStaffField">5. 希望担当者
             <select id="bookingStaffSelect" name="staff" required></select>
           </label>
           <div class="field booking-my-coupon-panel">
             <div class="booking-my-coupon-head">
-              <span>5. マイクーポンから選ぶ</span>
+              <span>6. マイクーポンから選ぶ</span>
               <button type="button" data-booking-action="openMyCoupons">マイクーポンを見る</button>
             </div>
             <div class="menu-choice-grid" id="bookingMySelectionChoices"></div>
             <small>ここで選んだ内容は、下の通常メニュー・LINEクーポン欄にも反映されます。</small>
           </div>
-          <label class="field">6. 通常メニューの選び方
+          <label class="field">7. 通常メニューの選び方
             <select id="bookingMenuMode" name="menuMode" required>
               <option value="regular">通常メニューから選ぶ</option>
               <option value="consult">メニューを相談して決めたい</option>
             </select>
           </label>
           <div class="field" id="bookingMenuSelectionField">
-            <span>7. 通常メニュー</span>
+            <span>8. 通常メニュー</span>
             <div class="menu-choice-grid" id="bookingMenuChoices"></div>
           </div>
           <label class="field" id="bookingCustomMenuField" hidden>相談したい内容
             <textarea name="customMenu" rows="3" placeholder="例：カラーとトリートメントを相談したい"></textarea>
           </label>
           <div class="field">
-            <span>8. 利用したいLINEクーポン（任意）</span>
+            <span>9. 利用したいLINEクーポン（任意）</span>
             <div class="menu-choice-grid" id="bookingCouponChoices"></div>
             <small>予約では利用希望だけを伝えます。実際のクーポン利用はLINE側で行います。</small>
           </div>
-          <label class="field">9. 相談内容・備考<textarea name="memo" rows="4" placeholder="例：午前中希望、髪の状態、迷っているメニューなど"></textarea></label>
+          <label class="field">10. 相談内容・備考<textarea name="memo" rows="4" placeholder="例：午前中希望、髪の状態、迷っているメニューなど"></textarea></label>
           <div class="confirm-box" id="bookingConfirm">
-            <strong>10. 内容確認</strong>
+            <strong>11. 内容確認</strong>
             <p>入力後、下のボタンでスタッフ確認用の予約相談として送信します。</p>
           </div>
           <button class="primary-button" type="submit">予約希望を送信する</button>
@@ -462,6 +470,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="gacha-reveal" id="gachaReveal" hidden aria-live="polite"></div>
-  <script src="app.js?v=20260823-richmenu-1"></script>
+  <script src="app.js?v=20260825-booking-datetime-1"></script>
 </body>
 </html>

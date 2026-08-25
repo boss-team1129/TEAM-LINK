@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260823-richmenu-1";
+const TEAM_LINK_FRONTEND_BUILD = "20260825-booking-datetime-1";
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -698,6 +698,7 @@ function bindNavigation() {
     const backButton = event.target.closest("[data-back]");
     const adminTabButton = event.target.closest("[data-admin-tab]");
     const adminActionButton = event.target.closest("[data-admin-action]");
+    const bookingDateChoiceButton = event.target.closest("[data-booking-date-choice]");
     const bookingActionButton = event.target.closest("[data-booking-action]");
     const bookingMenuCategoryButton = event.target.closest("[data-booking-menu-category]");
     const bookingLineCouponToggle = event.target.closest("[data-booking-line-coupon-toggle]");
@@ -725,6 +726,16 @@ function bindNavigation() {
           showToast("管理データを取得できませんでした。");
         });
       }
+      return;
+    }
+    if (bookingDateChoiceButton) {
+      const parts = splitBookingDateTime(bookingDateChoiceButton.dataset.bookingDateChoice);
+      const modal = bookingDateChoiceButton.closest(".admin-booking-response-modal");
+      const dateInput = modal?.querySelector("[data-admin-booking-confirm-date]");
+      const timeInput = modal?.querySelector("[data-admin-booking-confirm-time]");
+      if (dateInput) dateInput.value = parts.date;
+      if (timeInput) timeInput.value = parts.time;
+      updateBookingDecisionPreview(modal);
       return;
     }
     if (adminActionButton) {
@@ -784,9 +795,11 @@ function bindNavigation() {
   });
   document.body.addEventListener("input", (event) => {
     if (event.target.closest("#gachaCharacterEditForm")) updateGachaCharacterPreview();
+    if (event.target.matches("[data-admin-booking-confirm-date], [data-admin-booking-confirm-time]")) updateBookingDecisionPreview(event.target.closest(".admin-booking-response-modal"));
   });
   document.body.addEventListener("change", (event) => {
     if (event.target.closest("#gachaCharacterEditForm")) updateGachaCharacterPreview();
+    if (event.target.matches("[data-admin-booking-confirm-date], [data-admin-booking-confirm-time]")) updateBookingDecisionPreview(event.target.closest(".admin-booking-response-modal"));
   });
   document.body.addEventListener("submit", (event) => {
     if (event.target.matches("#gachaCharacterEditForm")) {
@@ -854,6 +867,7 @@ function bindForms() {
         ["担当者", request.staff],
         ["第1希望", formatDateTime(request.firstDateTime)],
         ["第2希望", formatDateTime(request.secondDateTime)],
+        ["第3希望", formatDateTime(request.thirdDateTime)],
         ["施術時間", formatMinutes(request.totalMinutes)],
         ["参考金額", formatYen(request.referenceAmount)],
         ["状態", normalizeBookingStatus(request.status)]
@@ -933,6 +947,8 @@ function bindBookingFormInputs() {
     document.getElementById("bookingFirstTime"),
     document.getElementById("bookingSecondDate"),
     document.getElementById("bookingSecondTime"),
+    document.getElementById("bookingThirdDate"),
+    document.getElementById("bookingThirdTime"),
     document.getElementById("bookingStaffSelect"),
     modeSelect,
     document.querySelector("#bookingForm textarea[name='customMenu']"),
@@ -960,7 +976,7 @@ function bindBookingFormInputs() {
       syncMySelectionCheckboxToBooking(event.target);
       return;
     }
-    if (event.target.matches("#bookingFirstDate, #bookingFirstTime, #bookingSecondDate, #bookingSecondTime")) syncBookingDateTimeFields();
+    if (event.target.matches("#bookingFirstDate, #bookingFirstTime, #bookingSecondDate, #bookingSecondTime, #bookingThirdDate, #bookingThirdTime")) syncBookingDateTimeFields();
     if (event.target.matches("input, select, textarea")) captureBookingDraft();
     if (event.target.matches("#bookingFirstDate, #bookingFirstTime, #bookingStaffSelect")) {
       renderBookingMenuChoices();
@@ -972,7 +988,7 @@ function bindBookingFormInputs() {
   });
   form?.addEventListener("input", (event) => {
     if (event.target.matches("input, textarea")) {
-      if (event.target.matches("#bookingFirstDate, #bookingSecondDate")) syncBookingDateTimeFields();
+      if (event.target.matches("#bookingFirstDate, #bookingSecondDate, #bookingThirdDate")) syncBookingDateTimeFields();
       captureBookingDraft();
       updateBookingConfirm();
       refreshBookingValidationFeedback();
@@ -1005,7 +1021,7 @@ function renderBookingTimeOptions() {
   const end = minutesFromTimeValue(settings.businessHours?.end || "18:00");
   const options = [];
   for (let minutes = start; minutes <= end; minutes += interval) options.push(timeValueFromMinutes(minutes));
-  ["bookingFirstTime", "bookingSecondTime"].forEach((id) => {
+  ["bookingFirstTime", "bookingSecondTime", "bookingThirdTime"].forEach((id) => {
     const select = document.getElementById(id);
     if (!select) return;
     const selected = select.value;
@@ -1023,11 +1039,62 @@ function splitBookingDateTime(value) {
   return match ? { date: match[1], time: match[2] } : { date: "", time: "" };
 }
 
+function normalizeBookingDateTimeValue(value) {
+  const parts = splitBookingDateTime(value);
+  return parts.date && parts.time ? combineBookingDateTime(parts.date, parts.time) : "";
+}
+
+function getBookingRequestedDateTimes(booking) {
+  return [
+    { key: "first", label: "第1希望", value: normalizeBookingDateTimeValue(booking?.firstDateTime) },
+    { key: "second", label: "第2希望", value: normalizeBookingDateTimeValue(booking?.secondDateTime) },
+    { key: "third", label: "第3希望", value: normalizeBookingDateTimeValue(booking?.thirdDateTime) }
+  ].filter((item) => item.value);
+}
+
+function decideBookingDateTimeAction(booking, selectedDateTime) {
+  const normalized = normalizeBookingDateTimeValue(selectedDateTime);
+  if (!normalized) return { ok: false, status: "", confirmedChoice: "", dateTime: "" };
+  const requested = getBookingRequestedDateTimes(booking);
+  const matched = requested.find((item) => item.value === normalized);
+  return {
+    ok: true,
+    status: matched ? "confirmed" : "proposed",
+    confirmedChoice: matched?.label || "",
+    dateTime: normalized
+  };
+}
+
+function getBookingDisplayDateTime(booking) {
+  const status = normalizeBookingStatus(booking?.status || booking?.currentStatus || "");
+  if (status === "予約確定" || status === "サロンボード入力済み" || status === "来店済み") {
+    return normalizeBookingDateTimeValue(booking?.confirmedDateTime)
+      || normalizeBookingDateTimeValue(booking?.firstDateTime)
+      || normalizeBookingDateTimeValue(booking?.dateTime);
+  }
+  if (status === "別日時提案中" || status === "お客様返答待ち") {
+    return normalizeBookingDateTimeValue(booking?.proposedDateTime)
+      || normalizeBookingDateTimeValue(booking?.firstDateTime)
+      || normalizeBookingDateTimeValue(booking?.dateTime);
+  }
+  return normalizeBookingDateTimeValue(booking?.firstDateTime)
+    || normalizeBookingDateTimeValue(booking?.dateTime);
+}
+
+function getBookingDisplayDateTimeLabel(booking) {
+  const status = normalizeBookingStatus(booking?.status || booking?.currentStatus || "");
+  if (["予約確定", "サロンボード入力済み", "来店済み"].includes(status)) return "確定日時";
+  if (["別日時提案中", "お客様返答待ち"].includes(status)) return "店舗提案日時";
+  return "第1希望日時";
+}
+
 function syncBookingDateTimeFields() {
   const firstHidden = document.getElementById("bookingFirstDateTime");
   const secondHidden = document.getElementById("bookingSecondDateTime");
+  const thirdHidden = document.getElementById("bookingThirdDateTime");
   if (firstHidden) firstHidden.value = combineBookingDateTime(document.getElementById("bookingFirstDate")?.value, document.getElementById("bookingFirstTime")?.value);
   if (secondHidden) secondHidden.value = combineBookingDateTime(document.getElementById("bookingSecondDate")?.value, document.getElementById("bookingSecondTime")?.value);
+  if (thirdHidden) thirdHidden.value = combineBookingDateTime(document.getElementById("bookingThirdDate")?.value, document.getElementById("bookingThirdTime")?.value);
 }
 
 function renderBookingFormOptions() {
@@ -1258,6 +1325,7 @@ function captureBookingDraft() {
     customerName: String(data.get("customerName") || ""),
     firstDateTime: String(data.get("firstDateTime") || ""),
     secondDateTime: String(data.get("secondDateTime") || ""),
+    thirdDateTime: String(data.get("thirdDateTime") || ""),
     staff: String(data.get("staff") || ""),
     menuMode: String(data.get("menuMode") || "regular"),
     customMenu: String(data.get("customMenu") || ""),
@@ -1276,13 +1344,17 @@ function restoreBookingDraft() {
   }
   const first = splitBookingDateTime(draft.firstDateTime);
   const second = splitBookingDateTime(draft.secondDateTime);
+  const third = splitBookingDateTime(draft.thirdDateTime);
   document.getElementById("bookingFirstDate").value = first.date;
   document.getElementById("bookingFirstTime").value = first.time;
   document.getElementById("bookingSecondDate").value = second.date;
   document.getElementById("bookingSecondTime").value = second.time;
+  document.getElementById("bookingThirdDate").value = third.date;
+  document.getElementById("bookingThirdTime").value = third.time;
   form.elements.firstDateTime.value = draft.firstDateTime || "";
   form.elements.customerName.value = draft.customerName || "";
   form.elements.secondDateTime.value = draft.secondDateTime || "";
+  form.elements.thirdDateTime.value = draft.thirdDateTime || "";
   form.elements.staff.value = draft.staff || "";
   form.elements.menuMode.value = draft.menuMode || "regular";
   form.elements.customMenu.value = draft.customMenu || "";
@@ -1316,7 +1388,7 @@ function startBookingFromMySelections() {
 
 function updateBookingDateConstraints() {
   const min = jstDateKey();
-  ["bookingFirstDate", "bookingSecondDate"].forEach((id) => {
+  ["bookingFirstDate", "bookingSecondDate", "bookingThirdDate"].forEach((id) => {
     const input = document.getElementById(id);
     if (input) input.min = min;
   });
@@ -1341,6 +1413,7 @@ function updateBookingConfirm() {
       ${summaryRows([
         ["第1希望", formatDateTime(formData.get("firstDateTime")) || "未入力"],
         ["第2希望", formatDateTime(formData.get("secondDateTime")) || "未入力"],
+        ["第3希望", formatDateTime(formData.get("thirdDateTime")) || "未入力"],
         ["担当者", staff || "未選択"],
         ["メニュー", menuText],
         ["LINEクーポン", selectedCoupons.map((coupon) => coupon.title).join("、") || "利用しない"],
@@ -1388,6 +1461,7 @@ function buildBookingRequestFromForm(formElement) {
     requestType: "予約相談",
     firstDateTime: String(form.get("firstDateTime") || ""),
     secondDateTime: String(form.get("secondDateTime") || ""),
+    thirdDateTime: String(form.get("thirdDateTime") || ""),
     staffId: String(form.get("staff") || ""),
     staff: getStaffName(form.get("staff")),
     menuMode,
@@ -1417,10 +1491,13 @@ function validateBookingForm(form) {
   const customerName = String(form.get("customerName") || "").trim();
   const first = String(form.get("firstDateTime") || "");
   const second = String(form.get("secondDateTime") || "");
+  const third = String(form.get("thirdDateTime") || "");
   const firstDate = String(form.get("firstDate") || "");
   const firstTime = String(form.get("firstTime") || "");
   const secondDate = String(form.get("secondDate") || "");
   const secondTime = String(form.get("secondTime") || "");
+  const thirdDate = String(form.get("thirdDate") || "");
+  const thirdTime = String(form.get("thirdTime") || "");
   const issues = [];
   const addIssue = (fieldId, message) => {
     if (!issues.some((issue) => issue.fieldId === fieldId && issue.message === message)) issues.push({ fieldId, message });
@@ -1441,6 +1518,14 @@ function validateBookingForm(form) {
   if (second) {
     const secondCheck = validateReservableDateTime(second);
     if (!secondCheck.ok) addIssue("bookingSecondDateTimeField", `第二希望：${secondCheck.message}`);
+  }
+  if ((thirdDate && !thirdTime) || (!thirdDate && thirdTime)) {
+    addIssue("bookingThirdDateTimeField", "第三希望は日付と時間の両方を選択してください");
+  }
+  if (third && [first, second].includes(third)) addIssue("bookingThirdDateTimeField", "第三希望は第一・第二希望と別の日時を選んでください");
+  if (third) {
+    const thirdCheck = validateReservableDateTime(third);
+    if (!thirdCheck.ok) addIssue("bookingThirdDateTimeField", `第三希望：${thirdCheck.message}`);
   }
   if (!String(form.get("staff") || "")) addIssue("bookingStaffField", "担当希望を選択してください");
   const mode = String(form.get("menuMode") || "regular");
@@ -2145,7 +2230,7 @@ function buildNextReservationCardData(reservation) {
       status: ""
     };
   }
-  const dateTime = reservation.confirmedDateTime || reservation.firstDateTime || reservation.dateTime || "";
+  const dateTime = getBookingDisplayDateTime(reservation);
   const parsedDate = parseReservationDateTimeParts(dateTime);
   return {
     hasReservation: true,
@@ -2423,7 +2508,7 @@ function renderReservationStatus() {
     const consultations = readJson(STORAGE_KEYS.bookingConsultations, []).filter((item) => String(item.bookingRequestId || "") === String(requestId));
     const latestConsultation = consultations.slice().sort((a, b) => String(b.sentAt || "").localeCompare(String(a.sentAt || "")))[0] || null;
     const rows = [
-      ["日時", formatDateTime(nextReservation.confirmedDateTime || nextReservation.firstDateTime || nextReservation.dateTime)],
+      [getBookingDisplayDateTimeLabel(nextReservation), formatDateTime(getBookingDisplayDateTime(nextReservation))],
       nextReservation.staff ? ["担当者", nextReservation.staff] : null,
       ["状態", normalizeBookingStatus(nextReservation.status || nextReservation.currentStatus || "確認中")],
       getReservationMenuDisplayText(nextReservation) ? ["メニュー", getReservationMenuDisplayText(nextReservation)] : null,
@@ -2481,7 +2566,7 @@ function getReservationMenuDisplayText(booking) {
   if (!ids.length) return "";
   const commonMenus = [
     ...getReservationMenus(),
-    ...getBookableCouponMenus({ staffId: booking.staffId || "", dateTime: booking.confirmedDateTime || booking.firstDateTime || "" })
+    ...getBookableCouponMenus({ staffId: booking.staffId || "", dateTime: getBookingDisplayDateTime(booking) })
   ];
   return ids.map((id) => commonMenus.find((menu) => menu.menuId === id)?.title || "").filter(Boolean).join("＋");
 }
@@ -5777,7 +5862,7 @@ function visitReceptionCard(item, tone = "") {
   const time = formatReceptionTime(item.visitTime || item.confirmedAt || item.receivedAt);
   const todayBooking = readJson(STORAGE_KEYS.bookings, []).find((booking) => (
     String(booking.memberId || booking.userId || "") === String(item.memberId || "") &&
-    isToday(booking.confirmedDateTime || booking.firstDateTime)
+    isToday(getBookingDisplayDateTime(booking))
   ));
   const pending = item.status === "未確認" || item.status === "確認待ち";
   return `
@@ -5785,7 +5870,7 @@ function visitReceptionCard(item, tone = "") {
       <header>
         <span class="badge status-${statusTone(item.status)}">${escapeHtml(item.status)}</span>
         <strong>${escapeHtml(member?.realName || item.sentName || item.lineDisplayName || "LINEユーザー")}</strong>
-        <small>${todayBooking ? `予約 ${escapeHtml(formatReceptionTime(todayBooking.confirmedDateTime || todayBooking.firstDateTime))}` : `受付 ${escapeHtml(time)}`}</small>
+        <small>${todayBooking ? `予約 ${escapeHtml(formatReceptionTime(getBookingDisplayDateTime(todayBooking)))}` : `受付 ${escapeHtml(time)}`}</small>
       </header>
       <div class="admin-record-grid">
         ${summaryRows([
@@ -5924,7 +6009,7 @@ function renderMemberBookingsTab(member, bookings) {
       <div class="admin-actions"><button type="button" data-admin-action="chartCreateBooking" data-id="${escapeHtml(member.memberId)}">新しい予約を作成</button></div>
       <div class="chart-list">${bookings.map((booking) => `
         <article class="chart-row">
-          <strong>${escapeHtml(formatDateTime(booking.confirmedDateTime || booking.firstDateTime))}</strong>
+          <strong>${escapeHtml(formatDateTime(getBookingDisplayDateTime(booking)))}</strong>
           <span>${escapeHtml(booking.menu || "-")} / 担当 ${escapeHtml(booking.staff || "-")}</span>
           <span>予約元 ${escapeHtml(booking.reservationSource || booking.source || "-")} / 状態 ${escapeHtml(normalizeBookingStatus(booking.status))}</span>
           <span>クーポン ${escapeHtml(booking.couponTitle || "-")} / ${escapeHtml(formatYen(booking.referenceAmount))} / ${escapeHtml(formatMinutes(booking.totalMinutes || booking.totalDurationMinutes))}</span>
@@ -6110,7 +6195,7 @@ function renderAdminBookings() {
     <section class="admin-section-head">
       <div>
         <h3>予約管理</h3>
-        <p>予約希望を確認し、「受付承諾」または「別日の案内」で対応します。</p>
+        <p>希望日時を残したまま、店舗側の確定日時または提案日時を設定します。</p>
       </div>
       <button type="button" class="secondary-button compact" data-admin-tab="settings">LINE通知設定</button>
     </section>
@@ -6145,6 +6230,9 @@ function bookingCard(booking) {
       <details class="admin-record-details">
         <summary>予約内容を見る</summary>
         <p>第二希望：${escapeHtml(formatDateTime(booking.secondDateTime) || "なし")}</p>
+        <p>第三希望：${escapeHtml(formatDateTime(booking.thirdDateTime) || "なし")}</p>
+        ${booking.confirmedDateTime ? `<p>確定日時：${escapeHtml(formatDateTime(booking.confirmedDateTime))}</p>` : ""}
+        ${booking.proposedDateTime ? `<p>店舗提案日時：${escapeHtml(formatDateTime(booking.proposedDateTime))}</p>` : ""}
         <p>担当：${escapeHtml(formatStaffDisplayName(booking.staff) || "未定")}</p>
         <p>クーポン：${escapeHtml(couponLabel)}</p>
         ${(booking.consultation || booking.customMenu || booking.memo) ? `<p>相談内容：${escapeHtml(booking.consultation || booking.customMenu || booking.memo)}</p>` : ""}
@@ -6179,7 +6267,7 @@ function bookingCard(booking) {
         <small>${escapeHtml(booking.userId || booking.memberId || "")} / 受付 ${escapeHtml(formatDateTime(booking.receivedAt || booking.createdAt))}</small>
       </details>
       <div class="admin-actions admin-booking-actions">
-        ${canRespond ? `<button type="button" data-admin-action="confirmFirstChoice" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>受付承諾</button><button type="button" class="secondary-button" data-admin-action="proposeBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>別日の案内</button>` : ""}
+        ${canRespond ? `<button type="button" data-admin-action="confirmFirstChoice" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>確定日時を選ぶ</button><button type="button" class="secondary-button" data-admin-action="proposeBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>別日時を提案</button>` : ""}
       </div>
     </article>
   `;
@@ -6195,28 +6283,45 @@ function renderAdminBookingResponseModal(bookings) {
   const couponLabel = getReservationCouponDisplayText(booking) || "なし";
   const memo = booking.memo || booking.consultation || booking.customMenu || "なし";
   const isConfirm = mode === "confirm";
+  const initialDateTime = normalizeBookingDateTimeValue(
+    isConfirm
+      ? booking.confirmedDateTime || booking.firstDateTime
+      : booking.proposedDateTime || ""
+  );
+  const initial = splitBookingDateTime(initialDateTime);
+  const requestedDateTimes = getBookingRequestedDateTimes(booking);
   return `
     <div class="admin-booking-response-backdrop" role="presentation">
       <section class="admin-booking-response-modal" role="dialog" aria-modal="true" aria-labelledby="adminBookingResponseTitle">
         <header>
           <p class="kicker">Booking response</p>
-          <h3 id="adminBookingResponseTitle">${isConfirm ? "予約を確定する" : "別日の案内"}</h3>
+          <h3 id="adminBookingResponseTitle">確定する予約日時</h3>
         </header>
         <div class="summary-list">
           ${summaryRows([
             ["お客様", booking.customerName || "お客様"],
-            ["希望日時", formatDateTime(booking.firstDateTime) || "未入力"],
+            ["第1希望", formatDateTime(booking.firstDateTime) || "未入力"],
+            ["第2希望", formatDateTime(booking.secondDateTime) || "なし"],
+            ["第3希望", formatDateTime(booking.thirdDateTime) || "なし"],
             ["メニュー", menuLabel],
             ["クーポン", couponLabel],
             ["備考・相談内容", memo]
           ])}
         </div>
-        <label class="admin-booking-response-message">お客様へのメッセージ${isConfirm ? "（任意）" : "（必須）"}
-          <textarea data-admin-booking-response-message rows="5" placeholder="${isConfirm ? "必要な場合のみ入力してください" : "例：14:00でしたらご案内可能です。ご都合いかがでしょうか？"}"></textarea>
+        <div class="admin-booking-requested-choices" aria-label="お客様の希望日時から選択">
+          ${requestedDateTimes.map((item) => `<button type="button" class="secondary-button" data-booking-date-choice="${escapeHtml(item.value)}">${escapeHtml(item.label)}<small>${escapeHtml(formatDateTime(item.value))}</small></button>`).join("")}
+        </div>
+        <div class="admin-booking-confirmed-datetime">
+          <label>日付<input type="date" min="${escapeHtml(jstDateKey())}" value="${escapeHtml(initial.date)}" data-admin-booking-confirm-date></label>
+          <label>時間<input type="time" step="1800" value="${escapeHtml(initial.time)}" data-admin-booking-confirm-time></label>
+        </div>
+        <p class="admin-booking-decision-preview" data-admin-booking-decision-preview></p>
+        <label class="admin-booking-response-message">お客様へのメッセージ（任意）
+          <textarea data-admin-booking-response-message rows="5" placeholder="確定時は空欄でも送信できます。希望外の日時は定型の提案文を補います。"></textarea>
         </label>
         <p class="soft-note">LINE未連携・通知失敗の場合も、予約状態と入力内容は保存されます。</p>
         <div class="admin-booking-response-actions">
-          <button type="button" data-admin-action="submitBookingResponse" data-id="${escapeHtml(requestId)}" data-mode="${escapeHtml(mode)}">${isConfirm ? "予約を確定してLINE通知" : "別日の案内をLINE送信"}</button>
+          <button type="button" data-admin-action="submitBookingResponse" data-id="${escapeHtml(requestId)}" data-mode="${escapeHtml(mode)}">日時を確認する</button>
           <button type="button" class="secondary-button" data-admin-action="closeBookingResponseModal">戻る</button>
         </div>
       </section>
@@ -7418,7 +7523,7 @@ function getAdminCounts() {
     unconfirmedVisits: todayReceptions.filter((item) => item.status === "確認待ち").length,
     newBookings: bookings.filter((booking) => ["予約希望", "確認待ち", "日時変更相談", "変更依頼", "キャンセル依頼"].includes(normalizeBookingStatus(booking.status))).length,
     replyWaitingBookings: bookings.filter((booking) => ["別日時提案中", "お客様返答待ち"].includes(normalizeBookingStatus(booking.status))).length,
-    todayConfirmedBookings: bookings.filter((booking) => ["サロンボード入力済み", "予約確定"].includes(normalizeBookingStatus(booking.status)) && isToday(booking.confirmedDateTime || booking.firstDateTime)).length,
+    todayConfirmedBookings: bookings.filter((booking) => ["サロンボード入力済み", "予約確定"].includes(normalizeBookingStatus(booking.status)) && isToday(getBookingDisplayDateTime(booking))).length,
     monthlyGachaUsers: draws.filter((draw) => draw.issueMonth === currentMonthKey()).length,
     unusedCoupons: coupons.filter((coupon) => getCouponStatus(coupon) === "使用可能").length,
     loungeEntries: getLoungeCount(),
@@ -7444,7 +7549,7 @@ function buildOperationDashboard() {
   const expiringCoupons = coupons.filter((coupon) => String(coupon.status || "未使用") === "未使用" && isExpiringSoon(coupon.expires || coupon.validUntil));
   const plannedTodayCoupons = coupons.filter((coupon) => getCouponStatus(coupon) === "予約で使用予定" && bookings.some((booking) => (
     String(booking.reservationId || booking.requestId) === String(coupon.reservationId || "") &&
-    isToday(booking.confirmedDateTime || booking.firstDateTime)
+    isToday(getBookingDisplayDateTime(booking))
   )));
   const todayUsedCoupons = coupons.filter((coupon) => getCouponStatus(coupon) === "使用済み" && isToday(coupon.usedAt));
   const rarity = { UR: 0, SSR: 0, SR: 0, R: 0, N: 0 };
@@ -7464,7 +7569,7 @@ function buildOperationDashboard() {
     today: {
       visitReceptions: receptions.filter((item) => isToday(item.receivedAt)).length,
       unconfirmedVisits: receptions.filter((item) => isToday(item.receivedAt) && item.status === "確認待ち").length,
-      confirmedBookings: bookings.filter((booking) => ["サロンボード入力済み", "予約確定"].includes(normalizeBookingStatus(booking.status)) && isToday(booking.confirmedDateTime || booking.firstDateTime)).length,
+      confirmedBookings: bookings.filter((booking) => ["サロンボード入力済み", "予約確定"].includes(normalizeBookingStatus(booking.status)) && isToday(getBookingDisplayDateTime(booking))).length,
       bookingRequests: bookings.filter((booking) => isToday(booking.receivedAt || booking.createdAt)).length,
       cardUses: cards.filter((card) => getGachaLifecycleState(card) === "used" && isToday(card.usedAt)).length,
       plannedCoupons: plannedTodayCoupons.length,
@@ -8534,7 +8639,7 @@ function toggleMemberStatus(memberId) {
 
 async function updateBookingStatus(requestId, status, options = {}) {
   const bookings = readJson(STORAGE_KEYS.bookings, []);
-  const booking = bookings.find((item) => item.requestId === requestId);
+  const booking = bookings.find((item) => String(item.requestId || item.bookingRequestId || "") === String(requestId));
   if (!booking) {
     showToast("予約情報を取得できませんでした。画面を更新してもう一度お試しください。");
     return false;
@@ -8549,16 +8654,22 @@ async function updateBookingStatus(requestId, status, options = {}) {
     staffMessage: booking.staffMessage,
     staffMessageSentAt: booking.staffMessageSentAt,
     staffMessageSentBy: booking.staffMessageSentBy,
+    proposedDateTime: booking.proposedDateTime,
+    proposedAt: booking.proposedAt,
     confirmedDateTime: booking.confirmedDateTime,
-    confirmedAt: booking.confirmedAt
+    confirmedAt: booking.confirmedAt,
+    confirmedChoice: booking.confirmedChoice
   };
   booking.status = status;
   booking.currentStatus = status;
   booking.updatedAt = new Date().toISOString();
   if (options.adminReply !== undefined) booking.adminReply = String(options.adminReply || "").trim();
   if (options.staffMessage !== undefined) booking.staffMessage = String(options.staffMessage || "").trim();
+  if (options.proposedDateTime !== undefined) booking.proposedDateTime = options.proposedDateTime;
+  if (options.proposedAt !== undefined) booking.proposedAt = options.proposedAt;
   if (options.confirmedDateTime !== undefined) booking.confirmedDateTime = options.confirmedDateTime;
   if (options.confirmedAt !== undefined) booking.confirmedAt = options.confirmedAt;
+  if (options.confirmedChoice !== undefined) booking.confirmedChoice = options.confirmedChoice;
   if (status === "来店済み") booking.visitedAt = new Date().toISOString();
   if (normalizeBookingStatus(status) === "キャンセル") {
     booking.cancelledAt = new Date().toISOString();
@@ -8582,8 +8693,11 @@ async function updateBookingStatus(requestId, status, options = {}) {
         requestId,
         status,
         currentStatus: status,
+        proposedDateTime: booking.proposedDateTime || "",
+        proposedAt: booking.proposedAt || "",
         confirmedDateTime: booking.confirmedDateTime || "",
         confirmedAt: booking.confirmedAt || "",
+        confirmedChoice: booking.confirmedChoice || "",
         cancelledAt: booking.cancelledAt || "",
         visitedAt: booking.visitedAt || "",
         adminReply: booking.adminReply || "",
@@ -8600,6 +8714,11 @@ async function updateBookingStatus(requestId, status, options = {}) {
         booking.staffMessage = serverBooking.staffMessage || booking.staffMessage || "";
         booking.staffMessageSentAt = serverBooking.staffMessageSentAt || booking.staffMessageSentAt || "";
         booking.staffMessageSentBy = serverBooking.staffMessageSentBy || booking.staffMessageSentBy || "";
+        booking.proposedDateTime = serverBooking.proposedDateTime || booking.proposedDateTime || "";
+        booking.proposedAt = serverBooking.proposedAt || booking.proposedAt || "";
+        booking.confirmedDateTime = serverBooking.confirmedDateTime || booking.confirmedDateTime || "";
+        booking.confirmedAt = serverBooking.confirmedAt || booking.confirmedAt || "";
+        booking.confirmedChoice = serverBooking.confirmedChoice || booking.confirmedChoice || "";
       }
       applyBookingLineNotification(booking, notification);
       writeJson(STORAGE_KEYS.bookings, bookings);
@@ -8612,8 +8731,8 @@ async function updateBookingStatus(requestId, status, options = {}) {
   }
   addAdminLog("booking", `${booking.customerName || "お客様"} の予約を${status}に変更`, getAdminSession()?.name);
   renderApp();
-  if (normalizeBookingStatus(status) === "日時変更相談") {
-    showBookingLineNotificationToast("日時変更相談に更新しました", notification);
+  if (normalizeBookingStatus(status) === "別日時提案中") {
+    showBookingLineNotificationToast("別日時を提案しました", notification);
   } else if (normalizeBookingStatus(status) === "予約確定") {
     showBookingLineNotificationToast("予約確定しました", notification);
   }
@@ -8625,7 +8744,11 @@ function openBookingResponseModal(requestId, mode) {
   appState.adminBookingResponseRequestId = requestId;
   appState.adminBookingResponseMode = mode;
   renderApp();
-  window.requestAnimationFrame(() => document.querySelector("[data-admin-booking-response-message]")?.focus({ preventScroll: true }));
+  window.requestAnimationFrame(() => {
+    const modal = document.querySelector(".admin-booking-response-modal");
+    updateBookingDecisionPreview(modal);
+    modal?.querySelector("[data-admin-booking-confirm-date]")?.focus({ preventScroll: true });
+  });
 }
 
 function closeBookingResponseModal() {
@@ -8638,25 +8761,45 @@ function closeBookingResponseModal() {
 async function submitBookingResponse(button, requestId, mode) {
   const modal = button.closest(".admin-booking-response-modal");
   const textarea = modal?.querySelector("[data-admin-booking-response-message]");
-  const message = String(textarea?.value || "").trim();
-  if (mode === "needs_change" && !message) {
-    showToast("お客様へのメッセージを入力してください。");
-    textarea?.focus();
-    return false;
-  }
+  const enteredMessage = String(textarea?.value || "").trim();
   const booking = readJson(STORAGE_KEYS.bookings, []).find((item) => String(item.bookingRequestId || item.requestId || "") === String(requestId));
   if (!booking) {
     showToast("予約情報を取得できませんでした。");
     return false;
   }
-  const status = mode === "confirm" ? "confirmed" : "needs_change";
-  const options = mode === "confirm"
+  const selectedDateTime = combineBookingDateTime(
+    modal?.querySelector("[data-admin-booking-confirm-date]")?.value,
+    modal?.querySelector("[data-admin-booking-confirm-time]")?.value
+  );
+  const validation = validateReservableDateTime(selectedDateTime);
+  if (!selectedDateTime || !validation.ok) {
+    showToast(selectedDateTime ? validation.message : "確定する日付と時間を入力してください。");
+    modal?.querySelector("[data-admin-booking-confirm-date]")?.focus();
+    return false;
+  }
+  const decision = decideBookingDateTimeAction(booking, selectedDateTime);
+  const now = new Date().toISOString();
+  const status = decision.status;
+  const message = status === "proposed"
+    ? enteredMessage || buildDefaultBookingProposalMessage(decision.dateTime)
+    : enteredMessage;
+  const options = status === "confirmed"
     ? {
         staffMessage: message,
-        confirmedDateTime: booking.confirmedDateTime || booking.firstDateTime || "",
-        confirmedAt: new Date().toISOString()
+        confirmedDateTime: decision.dateTime,
+        confirmedAt: now,
+        confirmedChoice: decision.confirmedChoice,
+        proposedDateTime: "",
+        proposedAt: ""
       }
-    : { adminReply: message };
+    : {
+        adminReply: message,
+        proposedDateTime: decision.dateTime,
+        proposedAt: now,
+        confirmedDateTime: "",
+        confirmedAt: "",
+        confirmedChoice: ""
+      };
   const updated = await runBookingStatusAction(button, requestId, status, options);
   if (updated) {
     appState.adminBookingResponseRequestId = "";
@@ -8664,6 +8807,37 @@ async function submitBookingResponse(button, requestId, mode) {
     renderApp();
   }
   return updated;
+}
+
+function buildDefaultBookingProposalMessage(dateTime) {
+  return `ご希望いただいた時間でのご案内が難しいため、${formatDateTime(dateTime)}はいかがでしょうか？`;
+}
+
+function updateBookingDecisionPreview(modal) {
+  if (!modal) return;
+  const requestId = String(appState.adminBookingResponseRequestId || "");
+  const booking = readJson(STORAGE_KEYS.bookings, []).find((item) => String(item.bookingRequestId || item.requestId || "") === requestId);
+  const preview = modal.querySelector("[data-admin-booking-decision-preview]");
+  const submitButton = modal.querySelector("[data-admin-action='submitBookingResponse']");
+  if (!booking || !preview || !submitButton) return;
+  const selectedDateTime = combineBookingDateTime(
+    modal.querySelector("[data-admin-booking-confirm-date]")?.value,
+    modal.querySelector("[data-admin-booking-confirm-time]")?.value
+  );
+  const decision = decideBookingDateTimeAction(booking, selectedDateTime);
+  if (!decision.ok) {
+    preview.textContent = "確定する日付と時間を選択してください。";
+    submitButton.textContent = "日時を確認する";
+    return;
+  }
+  const formatted = formatDateTime(decision.dateTime);
+  if (decision.status === "confirmed") {
+    preview.textContent = `${decision.confirmedChoice}と一致しています。`;
+    submitButton.textContent = `${formatted} で予約を確定`;
+    return;
+  }
+  preview.textContent = "希望外の日時のため、予約確定ではなくお客様への提案として送信します。";
+  submitButton.textContent = `${formatted} を別日時として提案`;
 }
 
 async function runBookingStatusAction(button, requestId, status, options = {}) {
@@ -8675,7 +8849,7 @@ async function runBookingStatusAction(button, requestId, status, options = {}) {
   const originalLabel = button.textContent;
   button.textContent = "更新中…";
   button.setAttribute("aria-busy", "true");
-  showToast(normalizeBookingStatus(status) === "日時変更相談" ? "案内文を保存してLINE通知を確認しています…" : "予約を確定してLINE通知を確認しています…");
+  showToast(normalizeBookingStatus(status) === "別日時提案中" ? "提案日時を保存してLINE通知を確認しています…" : "予約を確定してLINE通知を確認しています…");
   try {
     return await updateBookingStatus(requestId, status, options);
   } finally {
@@ -8692,23 +8866,26 @@ async function runBookingStatusAction(button, requestId, status, options = {}) {
 
 async function confirmBookingChoice(requestId, choice) {
   const bookings = readJson(STORAGE_KEYS.bookings, []);
-  const booking = bookings.find((item) => item.requestId === requestId);
+  const booking = bookings.find((item) => String(item.requestId || item.bookingRequestId || "") === String(requestId));
   if (!booking) return;
-  const selectedDateTime = choice === "second" ? booking.secondDateTime : booking.firstDateTime;
+  const selectedDateTime = choice === "third"
+    ? booking.thirdDateTime
+    : choice === "second"
+      ? booking.secondDateTime
+      : booking.firstDateTime;
   if (!selectedDateTime) {
     showToast("選択した希望日時が登録されていません。");
     return;
   }
   booking.confirmedDateTime = selectedDateTime;
-  booking.confirmedChoice = choice === "second" ? "第二希望" : "第一希望";
-  booking.status = "サロンボード入力済み";
-  booking.currentStatus = "サロンボード入力済み";
-  booking.updatedAt = new Date().toISOString();
-  writeJson(STORAGE_KEYS.bookings, bookings);
-  if (isProductionApiMode()) await apiRequest("updateBookingRequest", { requestId, status: booking.status, currentStatus: booking.currentStatus, confirmedDateTime: booking.confirmedDateTime });
-  addAdminLog("booking_choice", `${booking.customerName || "お客様"} を${booking.confirmedChoice}で仮確定`, getAdminSession()?.name, booking.memberId || "");
-  renderApp();
-  showToast("サロンボード入力済みにしました。最終確定前に手動入力を確認してください。");
+  booking.confirmedChoice = choice === "third" ? "第3希望" : choice === "second" ? "第2希望" : "第1希望";
+  await updateBookingStatus(requestId, "confirmed", {
+    confirmedDateTime: selectedDateTime,
+    confirmedAt: new Date().toISOString(),
+    confirmedChoice: booking.confirmedChoice,
+    proposedDateTime: "",
+    proposedAt: ""
+  });
 }
 
 async function confirmBookingAfterSalonBoard(requestId) {
@@ -8804,7 +8981,7 @@ function editBooking(requestId) {
 }
 
 function showBookingDetail(requestId) {
-  const booking = readJson(STORAGE_KEYS.bookings, []).find((item) => item.requestId === requestId);
+  const booking = readJson(STORAGE_KEYS.bookings, []).find((item) => String(item.requestId || item.bookingRequestId || "") === String(requestId));
   if (!booking) return;
   const detail = [
     `予約ID: ${booking.reservationId || booking.requestId}`,
@@ -8813,6 +8990,8 @@ function showBookingDetail(requestId) {
     `予約元: ${booking.reservationSource || booking.source || ""}`,
     `第1希望: ${formatDateTime(booking.firstDateTime)}`,
     `第2希望: ${formatDateTime(booking.secondDateTime)}`,
+    `第3希望: ${formatDateTime(booking.thirdDateTime)}`,
+    `店舗提案日時: ${formatDateTime(booking.proposedDateTime) || "なし"}`,
     `確定日時: ${formatDateTime(booking.confirmedDateTime) || "未確定"}`,
     `担当者: ${booking.staff || ""}`,
     `メニュー: ${booking.menu || ""}`,
@@ -9909,7 +10088,7 @@ function completeSingleTodayBookingForMember(member) {
   const todayBookings = bookings.filter((booking) => (
     String(booking.memberId || "") === String(member.memberId || "") &&
     normalizeBookingStatus(booking.status) === "予約確定" &&
-    isToday(booking.confirmedDateTime || booking.firstDateTime)
+    isToday(getBookingDisplayDateTime(booking))
   ));
   if (todayBookings.length !== 1) return;
   todayBookings[0].status = "来店済み";
@@ -9940,7 +10119,7 @@ function normalizeBookingStatus(status) {
   const value = String(status || "").trim();
   if (["pending", "staff_checking", "スタッフ確認待ち", "返信待ち", "予約希望", "確認待ち", ""].includes(value)) return "予約希望";
   if (["needs_change", "日時変更相談"].includes(value)) return "日時変更相談";
-  if (["alternative_proposed", "別日時提案中"].includes(value)) return "別日時提案中";
+  if (["proposed", "alternative_proposed", "別日時提案中"].includes(value)) return "別日時提案中";
   if (["waiting_customer", "お客様返答待ち"].includes(value)) return "お客様返答待ち";
   if (["salon_board_entered", "サロンボード入力済み"].includes(value)) return "サロンボード入力済み";
   if (["confirmed", "予約確定"].includes(value)) return "予約確定";
@@ -10492,7 +10671,7 @@ function getNextReservation() {
     .filter((booking) => !["キャンセル", "対応完了", "来店済み"].includes(normalizeBookingStatus(booking.status)))
     .map((booking) => ({
       ...booking,
-      nextReservationTime: new Date(booking.confirmedDateTime || booking.firstDateTime || booking.dateTime || booking.createdAt || "").getTime()
+      nextReservationTime: new Date(getBookingDisplayDateTime(booking) || booking.createdAt || "").getTime()
     }))
     .filter((booking) => Number.isFinite(booking.nextReservationTime) && booking.nextReservationTime >= todayStart)
     .sort((a, b) => a.nextReservationTime - b.nextReservationTime)[0] || null;
@@ -10986,6 +11165,13 @@ async function syncProductionState() {
   try {
     const profile = getProfile();
     const userKey = getCurrentUserKey();
+    if (isLineLinkedCustomer(profile)) {
+      try {
+        await syncProductionCustomerBookings(profile, { render: false });
+      } catch (error) {
+        console.warn("[TEAM LINK CUSTOMER BOOKING SYNC FAILED]", error);
+      }
+    }
     appState.menuMasterSyncStatus = "loading";
     appState.couponMasterSyncStatus = "loading";
     appState.memberCouponSyncStatus = "loading";
@@ -11053,6 +11239,21 @@ async function syncProductionState() {
   } catch (error) {
     showToast("通信に失敗しました。時間をおいてもう一度お試しください");
   }
+}
+
+async function syncProductionCustomerBookings(profile = getProfile(), options = {}) {
+  if (!isProductionApiMode() || !isLineLinkedCustomer(profile)) return [];
+  const result = await apiRequest("getMyBookingRequests", {
+    memberId: profile.memberId || profile.linkedMemberId,
+    lineUserId: profile.lineUserId,
+    memberToken: profile.memberToken
+  });
+  const serverBookings = result.bookings || result.data?.bookings;
+  if (!Array.isArray(serverBookings)) throw new Error("予約確認データの形式が正しくありません。");
+  const bookings = serverBookings.map(mapServerBookingToLocal);
+  writeJson(STORAGE_KEYS.bookings, bookings);
+  if (options.render !== false) renderApp();
+  return bookings;
 }
 
 function parseServerJsonArray(value) {

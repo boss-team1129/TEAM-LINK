@@ -5812,6 +5812,79 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
   line-height: 1.55;
 }
 
+.admin-booking-requested-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-booking-requested-choices button {
+  min-width: 0;
+  min-height: 58px;
+  padding: 9px 7px;
+  display: grid;
+  place-content: center;
+  gap: 3px;
+  border-radius: 13px;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.admin-booking-requested-choices small {
+  display: block;
+  font-size: 10px;
+  opacity: .76;
+}
+
+.admin-booking-confirmed-datetime {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, .8fr);
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid rgba(228, 199, 126, .28);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .055);
+}
+
+.admin-booking-confirmed-datetime label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--champagne);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.admin-booking-confirmed-datetime input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid rgba(228, 199, 126, .34);
+  border-radius: 12px;
+  color: #fffaf0;
+  background: rgba(7, 7, 7, .48);
+  color-scheme: dark;
+  font: inherit;
+  font-size: 16px;
+}
+
+.admin-booking-decision-preview {
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: #fff4cf;
+  background: rgba(185, 139, 57, .13);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+@media (max-width: 420px) {
+  .admin-booking-requested-choices { grid-template-columns: 1fr; }
+  .admin-booking-confirmed-datetime { grid-template-columns: 1fr; }
+}
+
 .admin-booking-response-actions {
   width: 100%;
   min-width: 0;
