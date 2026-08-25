@@ -5836,6 +5836,35 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
   opacity: .76;
 }
 
+.admin-booking-requested-choices > span {
+  min-width: 0;
+  min-height: 58px;
+  padding: 9px 7px;
+  display: grid;
+  place-content: center;
+  gap: 3px;
+  border: 1px solid rgba(228, 199, 126, .20);
+  border-radius: 13px;
+  color: rgba(255, 250, 240, .88);
+  background: rgba(255, 255, 255, .045);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.admin-booking-current-proposal {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid rgba(228, 199, 126, .34);
+  border-radius: 14px;
+  color: #fff4cf;
+  background: rgba(185, 139, 57, .13);
+}
+
+.admin-booking-current-proposal small { font-weight: 800; opacity: .78; }
+.admin-booking-current-proposal strong { font-size: 16px; }
+
 .admin-booking-confirmed-datetime {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, .8fr);

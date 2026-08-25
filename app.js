@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260825-admin-session-1";
+const TEAM_LINK_FRONTEND_BUILD = "20260825-booking-response-2";
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -1044,8 +1044,26 @@ function splitBookingDateTime(value) {
 }
 
 function normalizeBookingDateTimeValue(value) {
-  const parts = splitBookingDateTime(value);
-  return parts.date && parts.time ? combineBookingDateTime(parts.date, parts.time) : "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return formatBookingDateTimeInputInJst(value);
+  const text = String(value || "").trim();
+  const local = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d{1,3})?)?$/);
+  if (local) return combineBookingDateTime(local[1], local[2]);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? "" : formatBookingDateTimeInputInJst(parsed);
+}
+
+function formatBookingDateTimeInputInJst(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
 function getBookingRequestedDateTimes(booking) {
@@ -1067,6 +1085,24 @@ function decideBookingDateTimeAction(booking, selectedDateTime) {
     confirmedChoice: matched?.label || "",
     dateTime: normalized
   };
+}
+
+function decideBookingResponseAction(booking, selectedDateTime, mode) {
+  const decision = decideBookingDateTimeAction(booking, selectedDateTime);
+  if (!decision.ok) return { ...decision, message: "日付と時間を選択してください。" };
+  const isProposalMode = ["needs_change", "propose", "proposed"].includes(String(mode || ""));
+  if (isProposalMode) {
+    if (decision.status === "confirmed") {
+      return { ...decision, ok: false, message: "お客様の希望日時と一致しています。予約確定を選択してください。" };
+    }
+    return { ...decision, status: "proposed" };
+  }
+  if (decision.status === "confirmed") return decision;
+  const proposedDateTime = normalizeBookingDateTimeValue(booking?.proposedDateTime);
+  if (proposedDateTime && proposedDateTime === decision.dateTime) {
+    return { ...decision, status: "confirmed", confirmedChoice: "店舗提案（了承済み）" };
+  }
+  return { ...decision, ok: false, message: "希望外の日時は「別日の案内」からお客様へ提案してください。" };
 }
 
 function getBookingDisplayDateTime(booking) {
@@ -6220,6 +6256,7 @@ function bookingCard(booking) {
   const isActionBusy = String(appState.adminBookingActionBusyId || "") === String(requestId);
   const isDeepLinked = String(appState.adminFocusedBookingRequestId || "") === String(requestId);
   const canRespond = ["予約希望", "確認待ち", "日時変更相談", "変更依頼", "別日時提案中", "お客様返答待ち"].includes(status);
+  const hasProposal = Boolean(normalizeBookingDateTimeValue(booking.proposedDateTime));
   const lineNotificationLabel = getBookingLineNotificationLabel(booking);
   const emailNotificationLabel = getBookingEmailNotificationLabel(booking);
   const consultations = Array.isArray(booking.bookingConsultations) ? booking.bookingConsultations : [];
@@ -6271,7 +6308,7 @@ function bookingCard(booking) {
         <small>${escapeHtml(booking.userId || booking.memberId || "")} / 受付 ${escapeHtml(formatDateTime(booking.receivedAt || booking.createdAt))}</small>
       </details>
       <div class="admin-actions admin-booking-actions">
-        ${canRespond ? `<button type="button" data-admin-action="confirmFirstChoice" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>確定日時を選ぶ</button><button type="button" class="secondary-button" data-admin-action="proposeBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>別日時を提案</button>` : ""}
+        ${canRespond ? `<button type="button" data-admin-action="confirmFirstChoice" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を確認・確定" : "確定日時を選ぶ"}</button><button type="button" class="secondary-button" data-admin-action="proposeBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を変更・再送" : "別日の案内"}</button>` : ""}
       </div>
     </article>
   `;
@@ -6287,19 +6324,21 @@ function renderAdminBookingResponseModal(bookings) {
   const couponLabel = getReservationCouponDisplayText(booking) || "なし";
   const memo = booking.memo || booking.consultation || booking.customMenu || "なし";
   const isConfirm = mode === "confirm";
+  const hasProposal = Boolean(normalizeBookingDateTimeValue(booking.proposedDateTime));
   const initialDateTime = normalizeBookingDateTimeValue(
     isConfirm
-      ? booking.confirmedDateTime || booking.firstDateTime
-      : booking.proposedDateTime || ""
+      ? booking.confirmedDateTime || booking.proposedDateTime || booking.firstDateTime
+      : booking.proposedDateTime || booking.firstDateTime
   );
   const initial = splitBookingDateTime(initialDateTime);
   const requestedDateTimes = getBookingRequestedDateTimes(booking);
+  const message = isConfirm ? booking.staffMessage || "" : booking.adminReply || "";
   return `
     <div class="admin-booking-response-backdrop" role="presentation">
       <section class="admin-booking-response-modal" role="dialog" aria-modal="true" aria-labelledby="adminBookingResponseTitle">
         <header>
           <p class="kicker">Booking response</p>
-          <h3 id="adminBookingResponseTitle">確定する予約日時</h3>
+          <h3 id="adminBookingResponseTitle">${isConfirm ? "確定する予約日時" : "ご案内する日時"}</h3>
         </header>
         <div class="summary-list">
           ${summaryRows([
@@ -6313,19 +6352,20 @@ function renderAdminBookingResponseModal(bookings) {
           ])}
         </div>
         <div class="admin-booking-requested-choices" aria-label="お客様の希望日時から選択">
-          ${requestedDateTimes.map((item) => `<button type="button" class="secondary-button" data-booking-date-choice="${escapeHtml(item.value)}">${escapeHtml(item.label)}<small>${escapeHtml(formatDateTime(item.value))}</small></button>`).join("")}
+          ${isConfirm ? requestedDateTimes.map((item) => `<button type="button" class="secondary-button" data-booking-date-choice="${escapeHtml(item.value)}">${escapeHtml(item.label)}<small>${escapeHtml(formatDateTime(item.value))}</small></button>`).join("") : requestedDateTimes.map((item) => `<span>${escapeHtml(item.label)}<small>${escapeHtml(formatDateTime(item.value))}</small></span>`).join("")}
         </div>
+        ${hasProposal ? `<div class="admin-booking-current-proposal"><small>店舗からの提案日時</small><strong>${escapeHtml(formatDateTime(booking.proposedDateTime))}</strong></div>` : ""}
         <div class="admin-booking-confirmed-datetime">
           <label>日付<input type="date" min="${escapeHtml(jstDateKey())}" value="${escapeHtml(initial.date)}" data-admin-booking-confirm-date></label>
           <label>時間<input type="time" step="1800" value="${escapeHtml(initial.time)}" data-admin-booking-confirm-time></label>
         </div>
         <p class="admin-booking-decision-preview" data-admin-booking-decision-preview></p>
         <label class="admin-booking-response-message">お客様へのメッセージ（任意）
-          <textarea data-admin-booking-response-message rows="5" placeholder="確定時は空欄でも送信できます。希望外の日時は定型の提案文を補います。"></textarea>
+          <textarea data-admin-booking-response-message rows="5" placeholder="${isConfirm ? "空欄の場合は定型の予約確定通知を送信します。" : "空欄の場合は選択日時を含む定型の提案文を送信します。"}">${escapeHtml(message)}</textarea>
         </label>
         <p class="soft-note">LINE未連携・通知失敗の場合も、予約状態と入力内容は保存されます。</p>
         <div class="admin-booking-response-actions">
-          <button type="button" data-admin-action="submitBookingResponse" data-id="${escapeHtml(requestId)}" data-mode="${escapeHtml(mode)}">日時を確認する</button>
+          <button type="button" data-admin-action="submitBookingResponse" data-id="${escapeHtml(requestId)}" data-mode="${escapeHtml(mode)}">${isConfirm ? (hasProposal ? "この日時で予約を確定してLINE通知" : "予約を確定してLINE通知") : "この日時をお客様へ送る"}</button>
           <button type="button" class="secondary-button" data-admin-action="closeBookingResponseModal">戻る</button>
         </div>
       </section>
@@ -8829,7 +8869,11 @@ async function submitBookingResponse(button, requestId, mode) {
     modal?.querySelector("[data-admin-booking-confirm-date]")?.focus();
     return false;
   }
-  const decision = decideBookingDateTimeAction(booking, selectedDateTime);
+  const decision = decideBookingResponseAction(booking, selectedDateTime, mode);
+  if (!decision.ok) {
+    showToast(decision.message || "日時をご確認ください。");
+    return false;
+  }
   const now = new Date().toISOString();
   const status = decision.status;
   const message = status === "proposed"
@@ -8840,9 +8884,7 @@ async function submitBookingResponse(button, requestId, mode) {
         staffMessage: message,
         confirmedDateTime: decision.dateTime,
         confirmedAt: now,
-        confirmedChoice: decision.confirmedChoice,
-        proposedDateTime: "",
-        proposedAt: ""
+        confirmedChoice: decision.confirmedChoice
       }
     : {
         adminReply: message,
@@ -8876,20 +8918,25 @@ function updateBookingDecisionPreview(modal) {
     modal.querySelector("[data-admin-booking-confirm-date]")?.value,
     modal.querySelector("[data-admin-booking-confirm-time]")?.value
   );
-  const decision = decideBookingDateTimeAction(booking, selectedDateTime);
-  if (!decision.ok) {
-    preview.textContent = "確定する日付と時間を選択してください。";
-    submitButton.textContent = "日時を確認する";
+  const mode = String(appState.adminBookingResponseMode || "");
+  const decision = decideBookingResponseAction(booking, selectedDateTime, mode);
+  const validation = selectedDateTime ? validateReservableDateTime(selectedDateTime) : { ok: false, message: "日付と時間を選択してください。" };
+  if (!decision.ok || !validation.ok) {
+    preview.textContent = decision.message || validation.message;
+    submitButton.disabled = true;
     return;
   }
+  submitButton.disabled = false;
   const formatted = formatDateTime(decision.dateTime);
-  if (decision.status === "confirmed") {
-    preview.textContent = `${decision.confirmedChoice}と一致しています。`;
-    submitButton.textContent = `${formatted} で予約を確定`;
+  if (["needs_change", "propose", "proposed"].includes(mode)) {
+    preview.textContent = `${formatted} を店舗からの案内日時としてLINEで送信します。`;
+    submitButton.textContent = "この日時をお客様へ送る";
     return;
   }
-  preview.textContent = "希望外の日時のため、予約確定ではなくお客様への提案として送信します。";
-  submitButton.textContent = `${formatted} を別日時として提案`;
+  preview.textContent = `${decision.confirmedChoice}：${formatted} で予約を確定します。`;
+  submitButton.textContent = decision.confirmedChoice === "店舗提案（了承済み）"
+    ? "この日時で予約を確定してLINE通知"
+    : "予約を確定してLINE通知";
 }
 
 async function runBookingStatusAction(button, requestId, status, options = {}) {
