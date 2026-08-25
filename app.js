@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260825-booking-datetime-1";
+const TEAM_LINK_FRONTEND_BUILD = "20260825-admin-session-1";
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -632,6 +632,9 @@ const adminUsers = {
   boss: { adminId: "boss", name: "村松 剛好", role: "admin", label: "管理者" },
   "staff-kanda": { adminId: "staff-kanda", name: "神田 加奈", role: "staff", label: "スタッフ" }
 };
+const ADMIN_PASSCODE = "0000";
+const ADMIN_SESSION_VERSION = 2;
+const ADMIN_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const adminTabs = [
   { key: "dashboard", label: "管理トップ" },
@@ -815,15 +818,16 @@ function bindForms() {
     const form = new FormData(event.currentTarget);
     const adminId = String(form.get("adminId") || "");
     const password = String(form.get("password") || "");
-    if (password !== "teamlink") {
+    if (password !== ADMIN_PASSCODE) {
       showToast("管理パスコードが違います。");
       return;
     }
-    const admin = adminUsers[adminId] || adminUsers.boss;
-    writeJson(STORAGE_KEYS.adminSession, {
-      ...admin,
-      loggedInAt: new Date().toISOString()
-    });
+    const admin = adminUsers[adminId];
+    if (!admin) {
+      showToast("スタッフを選択してください。");
+      return;
+    }
+    saveAdminSession(adminId);
     addAdminLog("login", "管理画面にログイン", admin.name);
     event.currentTarget.reset();
     renderAdmin();
@@ -833,7 +837,7 @@ function bindForms() {
   document.getElementById("adminLogoutButton").addEventListener("click", () => {
     const admin = getAdminSession();
     addAdminLog("logout", "管理画面からログアウト", admin?.name || "unknown");
-    localStorage.removeItem(STORAGE_KEYS.adminSession);
+    clearAdminSession();
     renderAdmin();
   });
 
@@ -7496,8 +7500,56 @@ async function submitBookingConsultation(button, bookingRequestId) {
   }
 }
 
-function getAdminSession() {
-  return readJson(STORAGE_KEYS.adminSession, null);
+function createAdminSession(adminId, now = Date.now()) {
+  const admin = adminUsers[String(adminId || "")];
+  if (!admin) return null;
+  const loggedInAt = new Date(now).toISOString();
+  return {
+    ...admin,
+    sessionVersion: ADMIN_SESSION_VERSION,
+    loggedInAt,
+    expiresAt: new Date(now + ADMIN_SESSION_TTL_MS).toISOString()
+  };
+}
+
+function saveAdminSession(adminId, now = Date.now()) {
+  const session = createAdminSession(adminId, now);
+  if (!session) return null;
+  writeJson(STORAGE_KEYS.adminSession, session);
+  return session;
+}
+
+function clearAdminSession() {
+  localStorage.removeItem(STORAGE_KEYS.adminSession);
+}
+
+function getAdminSession(now = Date.now()) {
+  const stored = readJson(STORAGE_KEYS.adminSession, null);
+  if (!stored) return null;
+  const admin = adminUsers[String(stored.adminId || "")];
+  if (!admin) {
+    clearAdminSession();
+    return null;
+  }
+  const loggedInTime = Date.parse(String(stored.loggedInAt || ""));
+  let expiresAtTime = Date.parse(String(stored.expiresAt || ""));
+  if (!Number.isFinite(expiresAtTime) && Number.isFinite(loggedInTime)) {
+    expiresAtTime = loggedInTime + ADMIN_SESSION_TTL_MS;
+  }
+  if (!Number.isFinite(expiresAtTime) || now >= expiresAtTime) {
+    clearAdminSession();
+    return null;
+  }
+  const session = {
+    ...admin,
+    sessionVersion: ADMIN_SESSION_VERSION,
+    loggedInAt: Number.isFinite(loggedInTime) ? new Date(loggedInTime).toISOString() : new Date(now).toISOString(),
+    expiresAt: new Date(expiresAtTime).toISOString()
+  };
+  if (stored.sessionVersion !== ADMIN_SESSION_VERSION || stored.role !== admin.role || stored.expiresAt !== session.expiresAt) {
+    writeJson(STORAGE_KEYS.adminSession, session);
+  }
+  return session;
 }
 
 function getAdminCounts() {
