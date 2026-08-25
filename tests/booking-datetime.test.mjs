@@ -19,8 +19,8 @@ const helperSource = [
   sourceBetween("function normalizeBookingStatus", "function formatReceptionTime")
 ].join("\n");
 const context = { Date, Number, Intl };
-vm.runInNewContext(`${helperSource}\nthis.bookingHelpers = { decideBookingDateTimeAction, decideBookingResponseAction, getBookingDisplayDateTime, getBookingDisplayDateTimeLabel };`, context);
-const { decideBookingDateTimeAction, decideBookingResponseAction, getBookingDisplayDateTime, getBookingDisplayDateTimeLabel } = context.bookingHelpers;
+vm.runInNewContext(`${helperSource}\nthis.bookingHelpers = { decideBookingDateTimeAction, decideBookingResponseAction, getBookingDisplayDateTime, getBookingDisplayDateTimeLabel, getCustomerBookingProposalView };`, context);
+const { decideBookingDateTimeAction, decideBookingResponseAction, getBookingDisplayDateTime, getBookingDisplayDateTimeLabel, getCustomerBookingProposalView } = context.bookingHelpers;
 
 const booking = {
   firstDateTime: "2026-08-29T09:00",
@@ -86,6 +86,14 @@ test("提案日時は変更・再送でき、最新提案を確定できる", ()
   assert.equal(accepted.confirmedChoice, "店舗提案（了承済み）");
 });
 
+test("提案済み予約はLINE了承後に最終調整日時でも確定できる", () => {
+  const proposed = { ...booking, proposedDateTime: "2026-08-29T14:00", status: "proposed" };
+  const adjusted = decideBookingResponseAction(proposed, "2026-08-29T14:30", "confirm");
+  assert.equal(adjusted.ok, true);
+  assert.equal(adjusted.status, "confirmed");
+  assert.equal(adjusted.confirmedChoice, "店舗調整（了承済み）");
+});
+
 test("希望外日時を通常確定から直接確定できない", () => {
   const result = decideBookingResponseAction(booking, "2026-08-29T14:00", "confirm");
   assert.equal(result.ok, false);
@@ -105,6 +113,19 @@ test("提案中は proposedDateTime、未確定は第1希望を表示する", ()
   assert.equal(getBookingDisplayDateTime({ ...booking, status: "pending" }), booking.firstDateTime);
 });
 
+test("お客様の提案表示は希望・提案・店舗メッセージを分離する", () => {
+  const view = getCustomerBookingProposalView({
+    ...booking,
+    status: "proposed",
+    proposedDateTime: "2026-08-29T14:00",
+    adminReply: "14時はいかがでしょうか？"
+  });
+  assert.equal(view.isProposed, true);
+  assert.equal(view.requestedDateTime, booking.firstDateTime);
+  assert.equal(view.proposedDateTime, "2026-08-29T14:00");
+  assert.equal(view.message, "14時はいかがでしょうか？");
+});
+
 test("既存の確定予約は confirmedDateTime がなくても従来日時を表示する", () => {
   assert.equal(getBookingDisplayDateTime({ ...booking, status: "confirmed", confirmedDateTime: "" }), booking.firstDateTime);
 });
@@ -116,5 +137,7 @@ test("フォームとAPI payloadが第3希望・提案日時・確定日時を�
   assert.match(appSource, /confirmedDateTime:\s*booking\.confirmedDateTime/);
   assert.match(appSource, /apiRequest\("getMyBookingRequests"/);
   assert.match(appSource, /この日時をお客様へ送る/);
+  assert.match(appSource, /この日時をお客様へ再送する/);
   assert.match(appSource, /この日時で予約を確定してLINE通知/);
+  assert.match(appSource, /予約相談あり・未対応/);
 });

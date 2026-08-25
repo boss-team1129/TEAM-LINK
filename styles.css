@@ -5745,6 +5745,39 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
   background: rgba(228, 199, 126, .08);
 }
 
+.admin-booking-consultation-count.has-unresolved {
+  color: #ffd8d2;
+  border-color: rgba(239, 132, 111, .55) !important;
+  background: rgba(159, 52, 36, .24);
+  font-weight: 700;
+}
+
+.customer-booking-proposal {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid rgba(185, 139, 57, .34);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255, 250, 239, .96), rgba(244, 232, 251, .9));
+  box-shadow: 0 10px 24px rgba(92, 61, 33, .1);
+}
+
+.customer-booking-proposal h3,
+.customer-booking-proposal p { margin: 0; }
+
+.customer-booking-proposal-message {
+  padding: 12px;
+  border-radius: 12px;
+  color: #543a28;
+  background: rgba(255, 255, 255, .72);
+}
+
+.customer-booking-proposal-message p {
+  margin-top: 6px;
+  line-height: 1.65;
+}
+
 .admin-booking-consultations article {
   padding: 10px;
   border: 1px solid rgba(228, 199, 126, .18);
