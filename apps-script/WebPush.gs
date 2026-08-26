@@ -310,8 +310,8 @@ function getWebPushSubscriptions_(ss) {
 
 function ensureWebPushSheets_(ss) {
   registerWebPushSheetSchemas_();
-  ensureSheet_(ss, "PushSubscriptions");
-  ensureSheet_(ss, "PushNotificationLog");
+  ensureSheet_(ss, "PushSubscriptions", TEAM_LINK_WEB_PUSH_SUBSCRIPTION_HEADERS_);
+  ensureSheet_(ss, "PushNotificationLog", TEAM_LINK_WEB_PUSH_LOG_HEADERS_);
 }
 
 function registerWebPushSheetSchemas_() {
