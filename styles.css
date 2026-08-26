@@ -5840,6 +5840,16 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
   background: linear-gradient(135deg, #a83c2e, #7f281f) !important;
 }
 
+.admin-booking-cancellation-entry {
+  width: 100%;
+  min-height: 52px;
+  margin: 2px 0 4px;
+  border-radius: 14px !important;
+  font-size: 15px;
+  font-weight: 900;
+  touch-action: manipulation;
+}
+
 .admin-booking-response-message {
   width: 100%;
   min-width: 0;

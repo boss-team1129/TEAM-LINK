@@ -44,6 +44,18 @@ test("キャンセル依頼は確定日時とキャンセル相談を専用表�
   assert.deepEqual(booking, original);
 });
 
+test("currentStatusまたは未対応相談がキャンセル依頼なら専用導線にする", () => {
+  assert.equal(getBookingCancellationView({ status: "proposed", currentStatus: "cancel_requested" }).isCancellationRequest, true);
+  assert.equal(getBookingCancellationView({
+    status: "proposed",
+    bookingConsultations: [{ consultationType: "キャンセルしたい", status: "pending" }]
+  }).isCancellationRequest, true);
+  assert.equal(getBookingCancellationView({
+    status: "confirmed",
+    bookingConsultations: [{ consultationType: "キャンセルしたい", status: "resolved" }]
+  }).isCancellationRequest, false);
+});
+
 test("キャンセル完了で未処理件数が1減る", () => {
   const bookings = [{ status: "pending" }, { status: "cancel_requested" }, { status: "proposed" }];
   assert.equal(bookings.filter(isBookingUnresolved).length, 3);
@@ -53,10 +65,54 @@ test("キャンセル完了で未処理件数が1減る", () => {
 
 test("キャンセル依頼は日時確定ボタンではなく専用操作を表示する", () => {
   const cardSource = sourceBetween("function bookingCard", "function renderAdminBookingResponseModal");
-  assert.match(cardSource, /const isCancellationRequest = status === "キャンセル依頼"/);
+  assert.match(cardSource, /const isCancellationRequest = cancellationView\.isCancellationRequest/);
   assert.match(cardSource, /data-admin-action="openCancelBooking"/);
-  assert.match(cardSource, /キャンセル依頼を確認する/);
+  assert.match(cardSource, /admin-booking-cancellation-entry/);
+  assert.match(cardSource, /キャンセル処理へ/);
   assert.doesNotMatch(cardSource.match(/const canDateRespond = \[[^\]]+\]/)?.[0] || "", /キャンセル依頼/);
+});
+
+test("カードの専用ボタン操作からキャンセル専用画面を開ける", () => {
+  const cardSource = sourceBetween("function bookingCard", "function renderAdminBookingResponseModal");
+  const modalSource = sourceBetween("function renderAdminBookingResponseModal", "function renderAdminReservationMenus");
+  const openSource = sourceBetween("function openBookingResponseModal", "function closeBookingResponseModal");
+  const booking = {
+    bookingRequestId: "BR-TEST-CANCEL",
+    customerName: "テスト顧客",
+    status: "cancel_requested",
+    confirmedDateTime: "2026-08-29T09:30",
+    selectedMenus: [{ title: "テストメニュー" }],
+    staff: "担当テスト",
+    bookingConsultations: [{ consultationType: "キャンセルしたい", consultationComment: "テスト相談", status: "pending" }]
+  };
+  let rendered = 0;
+  const uiContext = {
+    appState: { adminBookingActionBusyId: "", adminFocusedBookingRequestId: "", adminBookingResponseRequestId: "", adminBookingResponseMode: "" },
+    normalizeBookingStatus: (value) => value === "cancel_requested" ? "キャンセル依頼" : value,
+    normalizeBookingDateTimeValue: (value) => value || "",
+    getBookingCancellationView: (value) => ({ isCancellationRequest: value.status === "cancel_requested", dateTime: value.confirmedDateTime, consultation: "テスト相談" }),
+    getReservationMenuDisplayText: () => "テストメニュー",
+    getBookingLineNotificationLabel: () => "",
+    getBookingEmailNotificationLabel: () => "",
+    formatDateTime: (value) => value || "",
+    formatStaffDisplayName: (value) => value || "",
+    statusTone: () => "warning",
+    escapeHtml: (value) => String(value ?? ""),
+    summaryRows: (rows) => rows.map(([label, value]) => `${label}:${value}`).join("|"),
+    renderApp: () => { rendered += 1; },
+    updateBookingDecisionPreview: () => {},
+    document: { querySelector: () => null },
+    window: { requestAnimationFrame: (callback) => callback() }
+  };
+  vm.runInNewContext(`${cardSource}\n${modalSource}\n${openSource}\nthis.ui = { bookingCard, renderAdminBookingResponseModal, openBookingResponseModal };`, uiContext);
+  const card = uiContext.ui.bookingCard(booking);
+  assert.match(card, /data-admin-action="openCancelBooking"/);
+  assert.match(card, /data-id="BR-TEST-CANCEL"/);
+  uiContext.ui.openBookingResponseModal("BR-TEST-CANCEL", "cancel");
+  assert.equal(rendered, 1);
+  const modal = uiContext.ui.renderAdminBookingResponseModal([booking]);
+  assert.match(modal, /キャンセル依頼対応/);
+  assert.match(modal, /予約をキャンセルしてLINE通知/);
 });
 
 test("専用画面とキャンセル完了処理が必要項目だけを更新する", () => {
