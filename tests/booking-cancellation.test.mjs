@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const appSource = await readFile(new URL("../app.js", import.meta.url), "utf8");
+const stylesSource = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
 function sourceBetween(start, end) {
   const startIndex = appSource.indexOf(start);
@@ -44,12 +45,12 @@ test("キャンセル依頼は確定日時とキャンセル相談を専用表�
   assert.deepEqual(booking, original);
 });
 
-test("statusまたはcurrentStatusがキャンセル依頼の場合だけ専用導線にする", () => {
+test("status・currentStatus・未対応キャンセル相談を専用導線の判定に使う", () => {
   assert.equal(getBookingCancellationView({ status: "proposed", currentStatus: "cancel_requested" }).isCancellationRequest, true);
   assert.equal(getBookingCancellationView({
     status: "proposed",
     bookingConsultations: [{ consultationType: "キャンセルしたい", status: "pending" }]
-  }).isCancellationRequest, false);
+  }).isCancellationRequest, true);
   assert.equal(getBookingCancellationView({
     status: "confirmed",
     bookingConsultations: [{ consultationType: "キャンセルしたい", status: "resolved" }]
@@ -108,11 +109,18 @@ test("カードの専用ボタン操作からキャンセル専用画面を開�
   const card = uiContext.ui.bookingCard(booking);
   assert.match(card, /data-admin-action="openCancelBooking"/);
   assert.match(card, /data-id="BR-TEST-CANCEL"/);
+  assert.ok(card.indexOf("</details>") < card.indexOf("admin-booking-cancellation-entry"));
   uiContext.ui.openBookingResponseModal("BR-TEST-CANCEL", "cancel");
   assert.equal(rendered, 1);
   const modal = uiContext.ui.renderAdminBookingResponseModal([booking]);
   assert.match(modal, /キャンセル依頼対応/);
   assert.match(modal, /予約をキャンセルしてLINE通知/);
+});
+
+test("iPhoneでもキャンセルボタンのタップ領域を他要素より前面に保つ", () => {
+  assert.match(stylesSource, /\.admin-booking-cancellation-entry\s*\{[^}]*z-index:\s*10/s);
+  assert.match(stylesSource, /\.admin-booking-cancellation-entry\s*\{[^}]*pointer-events:\s*auto\s*!important/s);
+  assert.match(stylesSource, /\.admin-booking-cancellation-entry\s*\{[^}]*touch-action:\s*manipulation/s);
 });
 
 test("専用画面とキャンセル完了処理が必要項目だけを更新する", () => {

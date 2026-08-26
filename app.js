@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260826-booking-cancellation-3";
+const TEAM_LINK_FRONTEND_BUILD = "20260826-booking-cancellation-4";
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -679,6 +679,7 @@ async function reloadIfFrontendBuildIsStale() {
     if (!latestBuild || latestBuild === TEAM_LINK_FRONTEND_BUILD) return false;
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("frontendBuild", latestBuild);
+    nextUrl.searchParams.set("refresh", String(Date.now()));
     window.location.replace(nextUrl.toString());
     return true;
   } catch (error) {
@@ -1124,9 +1125,10 @@ function getBookingCancellationView(booking) {
   const cancellationConsultation = consultations
     .filter((item) => String(item.consultationType || "") === "キャンセルしたい")
     .sort((a, b) => String(b.sentAt || b.createdAt || "").localeCompare(String(a.sentAt || a.createdAt || "")))[0] || null;
+  const hasUnresolvedCancellation = Boolean(cancellationConsultation && String(cancellationConsultation.status || "pending") !== "resolved");
   return {
     isCancellationRequest: [booking?.status, booking?.currentStatus]
-      .some((status) => normalizeBookingStatus(status || "") === "キャンセル依頼"),
+      .some((status) => normalizeBookingStatus(status || "") === "キャンセル依頼") || hasUnresolvedCancellation,
     dateTime: normalizeBookingDateTimeValue(booking?.confirmedDateTime)
       || normalizeBookingDateTimeValue(booking?.proposedDateTime)
       || normalizeBookingDateTimeValue(booking?.firstDateTime || booking?.dateTime),
@@ -6332,11 +6334,6 @@ function bookingCard(booking) {
         <span>希望メニュー ${escapeHtml(menuLabel || "相談")}</span>
         ${consultations.length ? `<span class="admin-booking-consultation-count ${openConsultationCount ? "has-unresolved" : "is-resolved"}">${openConsultationCount ? `予約相談あり・未対応 ${openConsultationCount}件` : "予約相談 対応済み"}</span>` : ""}
       </div>
-      ${isCancellationRequest ? `
-        <button type="button" class="danger-button admin-booking-cancellation-entry" data-admin-action="openCancelBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>
-          キャンセル処理へ
-        </button>
-      ` : ""}
       <details class="admin-record-details">
         <summary>予約内容を見る</summary>
         <p>第二希望：${escapeHtml(formatDateTime(booking.secondDateTime) || "なし")}</p>
@@ -6376,6 +6373,11 @@ function bookingCard(booking) {
         ${lineNotificationLabel ? `<p>LINE通知：${escapeHtml(lineNotificationLabel)}</p>` : ""}
         <small>${escapeHtml(booking.userId || booking.memberId || "")} / 受付 ${escapeHtml(formatDateTime(booking.receivedAt || booking.createdAt))}</small>
       </details>
+      ${isCancellationRequest ? `
+        <button type="button" class="danger-button admin-booking-cancellation-entry" data-admin-action="openCancelBooking" data-id="${escapeHtml(requestId)}" aria-label="${escapeHtml(booking.customerName || "お客様")}さんのキャンセル処理へ" ${isActionBusy ? "disabled" : ""}>
+          キャンセル処理へ
+        </button>
+      ` : ""}
       <div class="admin-actions admin-booking-actions">
         ${!isCancellationRequest && canDateRespond
             ? `<button type="button" data-admin-action="confirmFirstChoice" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を確認・確定" : "確定日時を選ぶ"}</button><button type="button" class="secondary-button" data-admin-action="proposeBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を変更・再送" : "別日の案内"}</button>`

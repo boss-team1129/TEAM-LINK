@@ -5841,14 +5841,26 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
 }
 
 .admin-booking-cancellation-entry {
+  position: relative;
+  z-index: 10;
   width: 100%;
   min-height: 52px;
   margin: 2px 0 4px;
   border-radius: 14px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 15px;
   font-weight: 900;
+  pointer-events: auto !important;
   touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  isolation: isolate;
 }
+
+.admin-booking-row { position: relative; isolation: isolate; }
+.admin-booking-row .admin-record-details { position: relative; z-index: 1; }
 
 .admin-booking-response-message {
   width: 100%;
