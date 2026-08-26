@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260826-booking-cancellation-4";
+const TEAM_LINK_FRONTEND_BUILD = "20260826-visit-count-1";
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -724,7 +724,10 @@ function bindNavigation() {
           console.error("[TEAM LINK ADMIN SETTINGS SYNC FAILED]", error);
           showToast("通知設定を取得できませんでした。");
         });
-      } else if (isProductionApiMode() && ["bookings", "visits", "coupons", "gacha", "members"].includes(appState.adminTab) && appState.adminDataStatus[appState.adminTab] !== "ready") {
+      } else if (isProductionApiMode() && (
+        appState.adminTab === "dashboard" ||
+        (["bookings", "visits", "coupons", "gacha", "members"].includes(appState.adminTab) && appState.adminDataStatus[appState.adminTab] !== "ready")
+      )) {
         syncProductionAdminSection().catch((error) => {
           console.error("[TEAM LINK ADMIN SYNC FAILED]", error);
           showToast("管理データを取得できませんでした。");
@@ -5907,14 +5910,14 @@ function renderAdminVisits() {
   }
   const allReceptions = getVisitReceptions();
   const receptions = appState.adminVisitShowHistory ? allReceptions : allReceptions.filter((item) => isToday(item.receivedAt));
-  const unconfirmed = receptions.filter((item) => item.status === "未確認" || item.status === "確認待ち");
+  const unconfirmed = receptions.filter(isVisitReceptionUnconfirmed);
   const confirmed = receptions.filter((item) => item.status === "来店済み" || item.status === "確認済み");
   const identified = receptions.filter((item) => item.status === "本人確認済み");
   const normalMessages = receptions.filter((item) => item.status === "対象外" || item.status === "通常メッセージ");
-  const todayReceptions = allReceptions.filter((item) => isToday(item.receivedAt));
+  const todayReceptions = getTodayVisitReceptions(allReceptions);
   const todaySummary = {
     total: todayReceptions.length,
-    unconfirmed: todayReceptions.filter((item) => item.status === "未確認" || item.status === "確認待ち").length,
+    unconfirmed: countTodayUnconfirmedVisitReceptions(allReceptions),
     confirmed: todayReceptions.filter((item) => item.status === "来店済み" || item.status === "確認済み").length,
     identified: todayReceptions.filter((item) => item.status === "本人確認済み").length,
     normal: todayReceptions.filter((item) => item.status === "対象外" || item.status === "通常メッセージ").length
@@ -7710,14 +7713,15 @@ function getAdminSession(now = Date.now()) {
 
 function getAdminCounts() {
   const receptions = getVisitReceptions();
-  const todayReceptions = receptions.filter((item) => isToday(item.receivedAt));
+  const todayReceptions = getTodayVisitReceptions(receptions);
+  const unconfirmedVisitCount = countTodayUnconfirmedVisitReceptions(receptions);
   const bookings = readJson(STORAGE_KEYS.bookings, []);
   const draws = readJson(STORAGE_KEYS.monthlyGachaDraws, []);
   const coupons = readJson(STORAGE_KEYS.myCoupons, []);
   const entries = getLoungeEntries();
   return {
-    dashboard: todayReceptions.filter((item) => item.status === "確認待ち").length + bookings.filter(isBookingUnresolved).length,
-    visits: todayReceptions.filter((item) => item.status === "確認待ち").length,
+    dashboard: unconfirmedVisitCount + bookings.filter(isBookingUnresolved).length,
+    visits: unconfirmedVisitCount,
     members: 0,
     bookings: bookings.filter(isBookingUnresolved).length,
     reservationMenus: getReservationMenus().filter((menu) => menu.isPublic === false).length,
@@ -7728,7 +7732,7 @@ function getAdminCounts() {
     notices: readJson(STORAGE_KEYS.adminNotices, []).filter((notice) => notice.status === "下書き").length,
     settings: 0,
     visitCandidates: todayReceptions.filter((item) => item.status !== "通常メッセージ" && item.status !== "取り消し").length,
-    unconfirmedVisits: todayReceptions.filter((item) => item.status === "確認待ち").length,
+    unconfirmedVisits: unconfirmedVisitCount,
     newBookings: bookings.filter((booking) => ["予約希望", "確認待ち", "日時変更相談", "変更依頼", "キャンセル依頼"].includes(normalizeBookingStatus(booking.status))).length,
     replyWaitingBookings: bookings.filter((booking) => ["別日時提案中", "お客様返答待ち"].includes(normalizeBookingStatus(booking.status))).length,
     todayConfirmedBookings: bookings.filter((booking) => ["サロンボード入力済み", "予約確定"].includes(normalizeBookingStatus(booking.status)) && isToday(getBookingDisplayDateTime(booking))).length,
@@ -7742,6 +7746,8 @@ function getAdminCounts() {
 function buildOperationDashboard() {
   const members = getMembers();
   const receptions = getVisitReceptions();
+  const todayReceptions = getTodayVisitReceptions(receptions);
+  const unconfirmedVisitCount = countTodayUnconfirmedVisitReceptions(receptions);
   const bookings = readJson(STORAGE_KEYS.bookings, []);
   const cards = readJson(STORAGE_KEYS.gachaCardHistory, []);
   const draws = readJson(STORAGE_KEYS.monthlyGachaDraws, []);
@@ -7764,7 +7770,7 @@ function buildOperationDashboard() {
   monthCards.forEach((card) => { rarity[card.rarity] = Number(rarity[card.rarity] || 0) + 1; });
   return {
     todo: {
-      unconfirmedVisits: receptions.filter((item) => isToday(item.receivedAt) && item.status === "確認待ち").length,
+      unconfirmedVisits: unconfirmedVisitCount,
       bookingNeedsAction: bookingNeedsAction.length,
       changeCancelRequests: bookings.filter((booking) => ["変更依頼", "キャンセル依頼"].includes(normalizeBookingStatus(booking.status))).length,
       rewardAchievers: rewardStates.filter(({ reward }) => reward.state === "達成").length,
@@ -7775,8 +7781,8 @@ function buildOperationDashboard() {
       pendingNotices: notices.filter((notice) => notice.status === "下書き").length
     },
     today: {
-      visitReceptions: receptions.filter((item) => isToday(item.receivedAt)).length,
-      unconfirmedVisits: receptions.filter((item) => isToday(item.receivedAt) && item.status === "確認待ち").length,
+      visitReceptions: todayReceptions.length,
+      unconfirmedVisits: unconfirmedVisitCount,
       confirmedBookings: bookings.filter((booking) => ["サロンボード入力済み", "予約確定"].includes(normalizeBookingStatus(booking.status)) && isToday(getBookingDisplayDateTime(booking))).length,
       bookingRequests: bookings.filter((booking) => isToday(booking.receivedAt || booking.createdAt)).length,
       cardUses: cards.filter((card) => getGachaLifecycleState(card) === "used" && isToday(card.usedAt)).length,
@@ -11782,6 +11788,18 @@ function normalizeVisitReceptionStatus(status) {
   if (["identified", "本人確認済み"].includes(value)) return "本人確認済み";
   if (["excluded", "通常メッセージ", "対象外"].includes(value)) return "対象外";
   return "未確認";
+}
+
+function isVisitReceptionUnconfirmed(item) {
+  return normalizeVisitReceptionStatus(item?.status) === "未確認";
+}
+
+function getTodayVisitReceptions(receptions = getVisitReceptions()) {
+  return receptions.filter((item) => isToday(item.receivedAt));
+}
+
+function countTodayUnconfirmedVisitReceptions(receptions = getVisitReceptions()) {
+  return getTodayVisitReceptions(receptions).filter(isVisitReceptionUnconfirmed).length;
 }
 
 async function syncProductionVisitReceptions(options = {}) {
