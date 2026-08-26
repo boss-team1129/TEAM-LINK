@@ -44,12 +44,12 @@ test("キャンセル依頼は確定日時とキャンセル相談を専用表�
   assert.deepEqual(booking, original);
 });
 
-test("currentStatusまたは未対応相談がキャンセル依頼なら専用導線にする", () => {
+test("statusまたはcurrentStatusがキャンセル依頼の場合だけ専用導線にする", () => {
   assert.equal(getBookingCancellationView({ status: "proposed", currentStatus: "cancel_requested" }).isCancellationRequest, true);
   assert.equal(getBookingCancellationView({
     status: "proposed",
     bookingConsultations: [{ consultationType: "キャンセルしたい", status: "pending" }]
-  }).isCancellationRequest, true);
+  }).isCancellationRequest, false);
   assert.equal(getBookingCancellationView({
     status: "confirmed",
     bookingConsultations: [{ consultationType: "キャンセルしたい", status: "resolved" }]
