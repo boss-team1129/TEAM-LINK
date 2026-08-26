@@ -12,6 +12,8 @@ function routeTeamLinkWebPushAction_(action, payload, sessionToken) {
   switch (String(action || "")) {
     case "getWebPushConfig":
       return getWebPushConfig_(sessionToken);
+    case "getWebPushSubscriptionStatus":
+      return getWebPushSubscriptionStatus_(payload, sessionToken);
     case "saveWebPushSubscription":
       return saveWebPushSubscription_(payload, sessionToken);
     case "disableWebPushSubscription":
@@ -19,6 +21,30 @@ function routeTeamLinkWebPushAction_(action, payload, sessionToken) {
     default:
       return null;
   }
+}
+
+function getWebPushSubscriptionStatus_(payload, sessionToken) {
+  requireAdminRole_(sessionToken, "staff");
+  var endpoint = String(payload && payload.endpoint || "").trim();
+  if (!/^https:\/\//.test(endpoint)) {
+    throwApiError_("VALIDATION_ERROR", "Push Subscriptionを特定できません");
+  }
+  var subscriptionId = webPushSubscriptionId_(endpoint);
+  var existing = getWebPushSubscriptions_().find(function(row) {
+    return String(row.subscriptionId || "") === subscriptionId;
+  });
+  return apiSuccess_({
+    subscription: {
+      registered: Boolean(existing),
+      enabled: Boolean(existing && isTruthy_(existing.enabled)),
+      subscriptionId: existing ? subscriptionId : "",
+      provider: webPushEndpointProvider_(endpoint),
+      updatedAt: existing && existing.updatedAt || "",
+      lastSuccessAt: existing && existing.lastSuccessAt || "",
+      lastErrorAt: existing && existing.lastErrorAt || "",
+      lastError: existing && existing.lastError || ""
+    }
+  }, "Web Push端末登録を確認しました");
 }
 
 function getWebPushConfig_(sessionToken) {
@@ -325,6 +351,14 @@ function registerWebPushSheetSchemas_() {
 function webPushSubscriptionId_(endpoint) {
   var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, endpoint, Utilities.Charset.UTF_8);
   return "WPS-" + bytes.map(function(value) { return ((value + 256) % 256).toString(16).padStart(2, "0"); }).join("").slice(0, 24).toUpperCase();
+}
+
+function webPushEndpointProvider_(endpoint) {
+  var match = String(endpoint || "").match(/^https:\/\/([^\/:?#]+)/i);
+  var host = match ? String(match[1]).toLowerCase() : "";
+  if (host === "fcm.googleapis.com" || host.endsWith(".googleapis.com")) return "fcm";
+  if (host === "web.push.apple.com" || host.endsWith(".push.apple.com")) return "apple";
+  return "webpush";
 }
 
 function webPushIsTestRow_(row) {

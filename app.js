@@ -107,7 +107,10 @@ const appState = {
     permission: "default",
     status: "pending",
     busy: false,
-    message: ""
+    message: "",
+    browserName: "Web Push",
+    provider: "",
+    registered: false
   },
   menuMasterSyncStatus: "pending",
   couponMasterSyncStatus: "pending",
@@ -7426,12 +7429,24 @@ function getWebPushCapability(environment = window) {
   };
 }
 
+function getWebPushBrowserInfo(environment = window) {
+  const userAgent = String(environment.navigator?.userAgent || "");
+  const isEdge = /Edg\//.test(userAgent);
+  const isOpera = /OPR\//.test(userAgent);
+  const isChrome = !isEdge && !isOpera && /Chrome\//.test(userAgent);
+  const isSafari = /Safari\//.test(userAgent) && !/Chrome\/|Chromium\/|Edg\/|OPR\//.test(userAgent);
+  if (isChrome) return { kind: "chrome", name: "Chrome" };
+  if (isSafari) return { kind: "safari", name: "Safari" };
+  return { kind: "webpush", name: "Web Push" };
+}
+
 function getWebPushDisplayState(webPush = appState.webPush) {
+  const notificationName = String(webPush.browserName || "Web Push");
   if (!webPush.supported) return { label: "利用不可", tone: "warning", action: "", button: "" };
-  if (webPush.permission === "denied") return { label: "通知OFF", tone: "warning", action: "", button: "Safariの通知設定をご確認ください" };
-  if (webPush.status === "on") return { label: "通知ON", tone: "success", action: "disableWebPushNotifications", button: "このMacの通知をOFFにする" };
+  if (webPush.permission === "denied") return { label: `${notificationName}通知OFF`, tone: "warning", action: "", button: `${notificationName}の通知設定をご確認ください` };
+  if (webPush.status === "on" && webPush.registered) return { label: `${notificationName}通知ON`, tone: "success", action: "disableWebPushNotifications", button: "このMacの通知をOFFにする" };
   if (webPush.status === "loading" || webPush.busy) return { label: "確認中", tone: "warning", action: "", button: "確認中…" };
-  return { label: "通知OFF", tone: "warning", action: "enableWebPushNotifications", button: "このMacで通知を受け取る" };
+  return { label: `${notificationName}通知OFF`, tone: "warning", action: "enableWebPushNotifications", button: "このMacで通知を受け取る" };
 }
 
 function renderAdminWebPushSettings() {
@@ -7451,8 +7466,10 @@ function renderAdminWebPushSettings() {
 
 async function initializeAdminWebPush() {
   const capability = getWebPushCapability();
+  const browser = getWebPushBrowserInfo();
   appState.webPush.supported = capability.supported;
   appState.webPush.permission = capability.permission;
+  appState.webPush.browserName = browser.name;
   if (!capability.supported) {
     appState.webPush.status = "unsupported";
     appState.webPush.message = "Safari 16.1以降のMacでHTTPSから開いてください。";
@@ -7464,8 +7481,11 @@ async function initializeAdminWebPush() {
 
 async function refreshAdminWebPushState() {
   const capability = getWebPushCapability();
+  const browser = getWebPushBrowserInfo();
   appState.webPush.supported = capability.supported;
   appState.webPush.permission = capability.permission;
+  appState.webPush.browserName = browser.name;
+  appState.webPush.registered = false;
   if (!capability.supported || capability.permission !== "granted") {
     appState.webPush.status = capability.supported ? "off" : "unsupported";
     renderAdmin();
@@ -7475,8 +7495,20 @@ async function refreshAdminWebPushState() {
   renderAdmin();
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.getSubscription();
-  appState.webPush.status = subscription ? "on" : "off";
-  appState.webPush.message = subscription ? "このMacは店舗通知を受信します。" : "通知許可はありますが、このMacは未登録です。";
+  if (!subscription) {
+    appState.webPush.status = "off";
+    appState.webPush.message = "通知許可はありますが、このMacは未登録です。";
+    renderAdmin();
+    return appState.webPush;
+  }
+  const statusResult = await apiRequest("getWebPushSubscriptionStatus", { endpoint: subscription.endpoint });
+  const serverStatus = statusResult.subscription || statusResult.data?.subscription || statusResult.data || {};
+  appState.webPush.registered = serverStatus.registered === true && serverStatus.enabled === true;
+  appState.webPush.provider = String(serverStatus.provider || "");
+  appState.webPush.status = appState.webPush.registered ? "on" : "off";
+  appState.webPush.message = appState.webPush.registered
+    ? `このMacは${browser.name}で店舗通知を受信します。`
+    : `${browser.name}内に購読情報がありますが、本番通知先に未登録です。「このMacで通知を受け取る」から再登録してください。`;
   renderAdmin();
   return appState.webPush;
 }
@@ -7514,6 +7546,13 @@ async function enableWebPushNotifications(button) {
       keys: serialized.keys || {},
       deviceLabel: getWebPushDeviceLabel()
     });
+    const statusResult = await apiRequest("getWebPushSubscriptionStatus", { endpoint: serialized.endpoint });
+    const serverStatus = statusResult.subscription || statusResult.data?.subscription || statusResult.data || {};
+    if (serverStatus.registered !== true || serverStatus.enabled !== true) {
+      throw new Error(`${browser.name}の通知先を本番へ登録できませんでした。`);
+    }
+    appState.webPush.registered = true;
+    appState.webPush.provider = String(serverStatus.provider || "");
     appState.webPush.status = "on";
     appState.webPush.message = "このMacの通知をONにしました。";
     showToast("このMacの通知をONにしました。");
@@ -7521,6 +7560,7 @@ async function enableWebPushNotifications(button) {
   } catch (error) {
     console.error("[TEAM LINK WEB PUSH ENABLE FAILED]", error);
     appState.webPush.status = "off";
+    appState.webPush.registered = false;
     appState.webPush.message = error?.message || "通知を設定できませんでした。";
     showToast(appState.webPush.message);
     return false;
@@ -7560,7 +7600,8 @@ async function disableWebPushNotifications(button) {
 
 function getWebPushDeviceLabel() {
   const platform = String(navigator.platform || "");
-  return /Mac/i.test(platform) ? "店舗Mac Safari" : "TEAM LINK管理端末";
+  const browser = getWebPushBrowserInfo();
+  return /Mac/i.test(platform) ? `店舗Mac ${browser.name}` : `TEAM LINK管理端末 ${browser.name}`;
 }
 
 function urlBase64ToUint8Array(value) {

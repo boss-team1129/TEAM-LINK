@@ -37,13 +37,15 @@ test("manifestはMacのDock追加用standalone管理画面を定義する", () =
 });
 
 test("通知ON・OFF・拒否表示を明確に分ける", () => {
-  const displaySource = sourceBetween(appSource, "function getWebPushDisplayState", "function renderAdminWebPushSettings");
+  const displaySource = sourceBetween(appSource, "function getWebPushBrowserInfo", "function renderAdminWebPushSettings");
   const context = { appState: { webPush: {} } };
-  vm.runInNewContext(`${displaySource}\nthis.getState = getWebPushDisplayState;`, context);
-  assert.equal(context.getState({ supported: true, permission: "granted", status: "on" }).label, "通知ON");
-  assert.equal(context.getState({ supported: true, permission: "default", status: "off" }).label, "通知OFF");
-  const denied = context.getState({ supported: true, permission: "denied", status: "off" });
-  assert.equal(denied.label, "通知OFF");
+  vm.runInNewContext(`${displaySource}\nthis.getState = getWebPushDisplayState;\nthis.getBrowser = getWebPushBrowserInfo;`, context);
+  assert.equal(context.getBrowser({ navigator: { userAgent: "Mozilla/5.0 Chrome/109.0.0.0 Safari/537.36" } }).name, "Chrome");
+  assert.equal(context.getBrowser({ navigator: { userAgent: "Mozilla/5.0 Version/16.1 Safari/605.1.15" } }).name, "Safari");
+  assert.equal(context.getState({ supported: true, permission: "granted", status: "on", registered: true, browserName: "Chrome" }).label, "Chrome通知ON");
+  assert.equal(context.getState({ supported: true, permission: "granted", status: "on", registered: false, browserName: "Chrome" }).label, "Chrome通知OFF");
+  const denied = context.getState({ supported: true, permission: "denied", status: "off", browserName: "Chrome" });
+  assert.equal(denied.label, "Chrome通知OFF");
   assert.equal(denied.action, "");
 });
 
@@ -53,6 +55,8 @@ test("通知許可は管理画面ボタン操作時だけ要求する", () => {
   assert.match(enableSource, /Notification\.requestPermission\(\)/);
   assert.doesNotMatch(initSource, /requestPermission/);
   assert.match(enableSource, /saveWebPushSubscription/);
+  assert.match(enableSource, /getWebPushSubscriptionStatus/);
+  assert.match(sourceBetween(appSource, "async function refreshAdminWebPushState", "async function enableWebPushNotifications"), /serverStatus\.registered === true && serverStatus\.enabled === true/);
 });
 
 test("Service Workerは通知生成と該当管理画面へのクリック遷移を処理する", async () => {
@@ -81,12 +85,12 @@ test("Service Workerは通知生成と該当管理画面へのクリック遷移
   vm.runInNewContext(serviceWorkerSource, context);
   let pushPromise;
   listeners.push({
-    data: { json: () => ({ title: "TEAM LINK｜キャンセル依頼", body: "テスト様", url: "https://boss-team1129.github.io/TEAM-LINK/?view=admin&section=bookings&requestId=REQ-1", eventKey: "REQ-1:cancel" }) },
+    data: { json: () => ({ title: "TEAM LINK｜Chrome通知テスト", body: "顧客データを使用しない通知テスト", url: "https://boss-team1129.github.io/TEAM-LINK/?view=admin&section=bookings", eventKey: "TEST-CHROME-PUSH-20260826" }) },
     waitUntil: (promise) => { pushPromise = promise; }
   });
   await pushPromise;
-  assert.equal(shown.title, "TEAM LINK｜キャンセル依頼");
-  assert.equal(shown.options.tag, "REQ-1:cancel");
+  assert.equal(shown.title, "TEAM LINK｜Chrome通知テスト");
+  assert.equal(shown.options.tag, "TEST-CHROME-PUSH-20260826");
   let clickPromise;
   listeners.notificationclick({ notification: { data: shown.options.data, close() {} }, waitUntil: (promise) => { clickPromise = promise; } });
   await clickPromise;
@@ -152,6 +156,31 @@ test("Apps Script追加処理はイベントを分離しテストデータを除
   assert.match(bookingEvent.body, /9月1日 11:00/);
   assert.match(bookingEvent.url, /section=bookings/);
   assert.match(integrationPatch, /routeTeamLinkWebPushAction_/);
+  assert.equal(context.webPushEndpointProvider_("https://fcm.googleapis.com/fcm/send/example"), "fcm");
+  assert.equal(context.webPushEndpointProvider_("https://web.push.apple.com/example"), "apple");
+});
+
+test("本番Subscription照合はendpointの秘密値を返さず登録状態だけを返す", () => {
+  let returned = null;
+  const context = {
+    TEAM_LINK_ADMIN_URL: "https://boss-team1129.github.io/TEAM-LINK/?view=admin",
+    requireAdminRole_() {},
+    getWebPushSubscriptions_: () => [{ subscriptionId: "WPS-TEST", enabled: "TRUE", updatedAt: "2026-08-26 17:00:00", lastSuccessAt: "" }],
+    webPushSubscriptionId_: () => "WPS-TEST",
+    isTruthy_: (value) => String(value).toUpperCase() === "TRUE",
+    apiSuccess_: (data) => { returned = data; return data; },
+    throwApiError_: (_code, message) => { throw new Error(message); },
+    encodeURIComponent
+  };
+  vm.runInNewContext(appsScriptSource, context);
+  context.webPushSubscriptionId_ = () => "WPS-TEST";
+  context.getWebPushSubscriptions_ = () => [{ subscriptionId: "WPS-TEST", enabled: "TRUE", updatedAt: "2026-08-26 17:00:00", lastSuccessAt: "" }];
+  const result = context.getWebPushSubscriptionStatus_({ endpoint: "https://fcm.googleapis.com/fcm/send/private-token" }, "SESSION");
+  assert.equal(result.subscription.registered, true);
+  assert.equal(result.subscription.enabled, true);
+  assert.equal(result.subscription.provider, "fcm");
+  assert.equal(JSON.stringify(result).includes("private-token"), false);
+  assert.equal(returned.subscription.subscriptionId, "WPS-TEST");
 });
 
 test("新規予約・日時変更・キャンセル・来店確認を別イベントとして生成する", () => {
