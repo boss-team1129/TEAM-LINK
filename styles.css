@@ -5818,6 +5818,28 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
 .admin-booking-response-modal h3,
 .admin-booking-response-modal p { margin: 0; }
 
+.admin-booking-cancellation-modal {
+  border-color: rgba(195, 93, 75, .46);
+}
+
+.admin-booking-cancellation-question {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+  border: 1px solid rgba(195, 93, 75, .38);
+  border-radius: 14px;
+  color: #5f2d26;
+  background: rgba(255, 238, 234, .94);
+}
+
+.admin-booking-cancellation-question strong { font-size: 17px; }
+
+.danger-button {
+  border-color: rgba(167, 58, 43, .7) !important;
+  color: #fff !important;
+  background: linear-gradient(135deg, #a83c2e, #7f281f) !important;
+}
+
 .admin-booking-response-message {
   width: 100%;
   min-width: 0;

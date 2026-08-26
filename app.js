@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260825-booking-consultation-1";
+const TEAM_LINK_FRONTEND_BUILD = "20260826-booking-cancellation-1";
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -1117,6 +1117,26 @@ function getCustomerBookingProposalView(booking) {
     proposedDateTime: normalizeBookingDateTimeValue(booking?.proposedDateTime),
     message: String(booking?.adminReply || "").trim()
   };
+}
+
+function getBookingCancellationView(booking) {
+  const consultations = Array.isArray(booking?.bookingConsultations) ? booking.bookingConsultations : [];
+  const cancellationConsultation = consultations
+    .filter((item) => String(item.consultationType || "") === "キャンセルしたい")
+    .sort((a, b) => String(b.sentAt || b.createdAt || "").localeCompare(String(a.sentAt || a.createdAt || "")))[0] || null;
+  return {
+    isCancellationRequest: normalizeBookingStatus(booking?.status || booking?.currentStatus || "") === "キャンセル依頼",
+    dateTime: normalizeBookingDateTimeValue(booking?.confirmedDateTime)
+      || normalizeBookingDateTimeValue(booking?.proposedDateTime)
+      || normalizeBookingDateTimeValue(booking?.firstDateTime || booking?.dateTime),
+    consultation: String(cancellationConsultation?.consultationComment || booking?.cancelReason || booking?.memo || booking?.consultation || "").trim(),
+    consultationId: String(cancellationConsultation?.consultationId || "")
+  };
+}
+
+function isBookingUnresolved(booking) {
+  return ["予約希望", "確認待ち", "日時変更相談", "変更依頼", "キャンセル依頼", "別日時提案中", "お客様返答待ち"]
+    .includes(normalizeBookingStatus(booking?.status || booking?.currentStatus || ""));
 }
 
 function getBookingDisplayDateTime(booking) {
@@ -2554,6 +2574,7 @@ function warmTeamFortuneCache(birthDate) {
 
 function renderReservationStatus() {
   const nextReservation = getNextReservation();
+  const cancelledReservation = nextReservation ? null : getLatestCancelledReservation();
   const container = document.getElementById("reservationStatusPanel");
   if (!container) return;
   if (nextReservation) {
@@ -2588,6 +2609,18 @@ function renderReservationStatus() {
       ${latestConsultation ? `<p class="booking-consultation-latest"><strong>予約相談を受付済み</strong><span>${escapeHtml(latestConsultation.consultationType || "その他相談")} / ${escapeHtml(formatDateTime(latestConsultation.sentAt) || "送信済み")}</span></p>` : ""}
       <button class="secondary-button booking-consultation-open" type="button" data-booking-action="openBookingConsultation" data-id="${escapeHtml(requestId)}">予約を変更・相談する</button>
       ${consultationOpen ? renderBookingConsultationForm(nextReservation) : ""}
+    `;
+  } else if (cancelledReservation) {
+    const cancellationView = getBookingCancellationView(cancelledReservation);
+    container.innerHTML = `
+      <p class="kicker">Cancelled booking</p>
+      <h2>予約はキャンセル済みです</h2>
+      <div class="summary-list">${summaryRows([
+        ["キャンセルした予約日時", formatDateTime(cancellationView.dateTime) || "日時未確定"],
+        getReservationMenuDisplayText(cancelledReservation) ? ["メニュー", getReservationMenuDisplayText(cancelledReservation)] : null,
+        ["状態", "キャンセル済み"]
+      ].filter(Boolean))}</div>
+      <p class="soft-note">またのご予約をお待ちしております。</p>
     `;
   } else {
     container.innerHTML = `
@@ -6281,7 +6314,9 @@ function bookingCard(booking) {
   const requestId = booking.requestId || booking.bookingRequestId || "";
   const isActionBusy = String(appState.adminBookingActionBusyId || "") === String(requestId);
   const isDeepLinked = String(appState.adminFocusedBookingRequestId || "") === String(requestId);
-  const canRespond = ["予約希望", "確認待ち", "日時変更相談", "変更依頼", "キャンセル依頼", "別日時提案中", "お客様返答待ち"].includes(status);
+  const isCancellationRequest = status === "キャンセル依頼";
+  const canDateRespond = ["予約希望", "確認待ち", "日時変更相談", "変更依頼", "別日時提案中", "お客様返答待ち"].includes(status);
+  const canRespond = canDateRespond || isCancellationRequest;
   const hasProposal = Boolean(normalizeBookingDateTimeValue(booking.proposedDateTime));
   const lineNotificationLabel = getBookingLineNotificationLabel(booking);
   const emailNotificationLabel = getBookingEmailNotificationLabel(booking);
@@ -6335,7 +6370,11 @@ function bookingCard(booking) {
         <small>${escapeHtml(booking.userId || booking.memberId || "")} / 受付 ${escapeHtml(formatDateTime(booking.receivedAt || booking.createdAt))}</small>
       </details>
       <div class="admin-actions admin-booking-actions">
-        ${canRespond ? `<button type="button" data-admin-action="confirmFirstChoice" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を確認・確定" : "確定日時を選ぶ"}</button><button type="button" class="secondary-button" data-admin-action="proposeBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を変更・再送" : "別日の案内"}</button>` : ""}
+        ${isCancellationRequest
+          ? `<button type="button" class="danger-button" data-admin-action="openCancelBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>キャンセル依頼を確認する</button>`
+          : canDateRespond
+            ? `<button type="button" data-admin-action="confirmFirstChoice" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を確認・確定" : "確定日時を選ぶ"}</button><button type="button" class="secondary-button" data-admin-action="proposeBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を変更・再送" : "別日の案内"}</button>`
+            : ""}
       </div>
     </article>
   `;
@@ -6348,6 +6387,36 @@ function renderAdminBookingResponseModal(bookings) {
   const booking = bookings.find((item) => String(item.bookingRequestId || item.requestId || "") === requestId);
   if (!booking) return "";
   const menuLabel = getReservationMenuDisplayText(booking) || booking.menu || "相談";
+  const cancellationView = getBookingCancellationView(booking);
+  if (mode === "cancel" || cancellationView.isCancellationRequest) {
+    return `
+      <div class="admin-booking-response-backdrop" role="presentation">
+        <section class="admin-booking-response-modal admin-booking-cancellation-modal" role="dialog" aria-modal="true" aria-labelledby="adminBookingCancellationTitle">
+          <header>
+            <p class="kicker">Cancellation request</p>
+            <h3 id="adminBookingCancellationTitle">キャンセル依頼対応</h3>
+          </header>
+          <div class="summary-list">${summaryRows([
+            ["お客様名", booking.customerName || "お客様"],
+            ["現在の予約日時", formatDateTime(cancellationView.dateTime) || "日時未確定"],
+            ["予約メニュー", menuLabel],
+            ["担当者", formatStaffDisplayName(booking.staffDisplayName || booking.staff) || "指名なし"],
+            ["お客様からの相談内容", cancellationView.consultation || "キャンセル希望"] ,
+            ["状態", "キャンセル依頼"]
+          ])}</div>
+          <div class="admin-booking-cancellation-question">
+            <strong>この予約をキャンセルしますか？</strong>
+            <p>予約日時や希望日時は書き換えず、状態のみをキャンセル済みに更新します。</p>
+          </div>
+          <p class="soft-note">LINE未連携・通知失敗の場合も、キャンセル状態と対応記録は保存されます。</p>
+          <div class="admin-booking-response-actions">
+            <button type="button" class="danger-button" data-admin-action="submitBookingCancellation" data-id="${escapeHtml(requestId)}">予約をキャンセルしてLINE通知</button>
+            <button type="button" class="secondary-button" data-admin-action="closeBookingResponseModal">キャンセルせず戻る</button>
+          </div>
+        </section>
+      </div>
+    `;
+  }
   const couponLabel = getReservationCouponDisplayText(booking) || "なし";
   const memo = booking.memo || booking.consultation || booking.customMenu || "なし";
   const isConfirm = mode === "confirm";
@@ -7404,16 +7473,18 @@ function handleAdminAction(button) {
   if (action === "toggleMemberStatus") return toggleMemberStatus(id);
   if (action === "bookingDetail") return showBookingDetail(id);
   if (action === "bookingMemberChart") return openMemberChart(id);
+  if (action === "openCancelBooking") return openBookingResponseModal(id, "cancel");
   if (action === "confirmFirstChoice") return openBookingResponseModal(id, "confirm");
   if (action === "confirmSecondChoice") return confirmBookingChoice(id, "second");
   if (action === "proposeBooking") return openBookingResponseModal(id, "needs_change");
   if (action === "closeBookingResponseModal") return closeBookingResponseModal();
   if (action === "submitBookingResponse") return submitBookingResponse(button, id, button.dataset.mode);
+  if (action === "submitBookingCancellation") return submitBookingCancellation(button, id);
   if (action === "editBooking") return editBooking(id);
   if (action === "bookingWaiting") return updateBookingStatus(id, "お客様返答待ち");
   if (action === "bookingSalonBoard") return updateBookingStatus(id, "サロンボード入力済み");
   if (action === "bookingConfirmed") return confirmBookingAfterSalonBoard(id);
-  if (action === "processCancelBooking") return updateBookingStatus(id, "cancelled");
+  if (action === "processCancelBooking") return openBookingResponseModal(id, "cancel");
   if (action === "bookingVisited") return updateBookingStatus(id, "来店済み");
   if (action === "createManualBooking") return createManualBooking();
   if (action === "replyBooking") return replyBooking(id);
@@ -7638,10 +7709,10 @@ function getAdminCounts() {
   const coupons = readJson(STORAGE_KEYS.myCoupons, []);
   const entries = getLoungeEntries();
   return {
-    dashboard: todayReceptions.filter((item) => item.status === "確認待ち").length + bookings.filter((booking) => ["予約希望", "確認待ち", "日時変更相談", "変更依頼", "キャンセル依頼"].includes(normalizeBookingStatus(booking.status))).length,
+    dashboard: todayReceptions.filter((item) => item.status === "確認待ち").length + bookings.filter(isBookingUnresolved).length,
     visits: todayReceptions.filter((item) => item.status === "確認待ち").length,
     members: 0,
-    bookings: bookings.filter((booking) => ["予約希望", "確認待ち", "日時変更相談", "変更依頼", "キャンセル依頼", "別日時提案中", "お客様返答待ち"].includes(normalizeBookingStatus(booking.status))).length,
+    bookings: bookings.filter(isBookingUnresolved).length,
     reservationMenus: getReservationMenus().filter((menu) => menu.isPublic === false).length,
     coupons: coupons.filter((coupon) => getCouponStatus(coupon) === "使用可能").length,
     gacha: getMembers().filter((member) => !getMemberGachaStatus(member).used).length,
@@ -8788,7 +8859,10 @@ async function updateBookingStatus(requestId, status, options = {}) {
     proposedAt: booking.proposedAt,
     confirmedDateTime: booking.confirmedDateTime,
     confirmedAt: booking.confirmedAt,
-    confirmedChoice: booking.confirmedChoice
+    confirmedChoice: booking.confirmedChoice,
+    cancelledAt: booking.cancelledAt,
+    cancelledBy: booking.cancelledBy,
+    bookingConsultations: booking.bookingConsultations
   };
   booking.status = status;
   booking.currentStatus = status;
@@ -8800,9 +8874,12 @@ async function updateBookingStatus(requestId, status, options = {}) {
   if (options.confirmedDateTime !== undefined) booking.confirmedDateTime = options.confirmedDateTime;
   if (options.confirmedAt !== undefined) booking.confirmedAt = options.confirmedAt;
   if (options.confirmedChoice !== undefined) booking.confirmedChoice = options.confirmedChoice;
+  if (options.cancelledAt !== undefined) booking.cancelledAt = options.cancelledAt;
+  if (options.cancelledBy !== undefined) booking.cancelledBy = options.cancelledBy;
   if (status === "来店済み") booking.visitedAt = new Date().toISOString();
   if (normalizeBookingStatus(status) === "キャンセル") {
-    booking.cancelledAt = new Date().toISOString();
+    booking.cancelledAt = booking.cancelledAt || new Date().toISOString();
+    booking.cancelledBy = booking.cancelledBy || getAdminSession()?.name || "スタッフ";
     if (isProductionApiMode()) {
       try {
         showToast("保存しています…");
@@ -8829,6 +8906,7 @@ async function updateBookingStatus(requestId, status, options = {}) {
         confirmedAt: booking.confirmedAt || "",
         confirmedChoice: booking.confirmedChoice || "",
         cancelledAt: booking.cancelledAt || "",
+        cancelledBy: booking.cancelledBy || "",
         visitedAt: booking.visitedAt || "",
         adminReply: booking.adminReply || "",
         staffMessage: booking.staffMessage || "",
@@ -8838,6 +8916,8 @@ async function updateBookingStatus(requestId, status, options = {}) {
       notification = result.data?.notification || result.notification || null;
       const serverBooking = result.data?.booking || result.booking || null;
       if (serverBooking) {
+        booking.status = serverBooking.status || booking.status;
+        booking.currentStatus = serverBooking.currentStatus || booking.currentStatus;
         booking.adminReply = serverBooking.adminReply || booking.adminReply || "";
         booking.adminReplySentAt = serverBooking.adminReplySentAt || booking.adminReplySentAt || "";
         booking.adminReplySentBy = serverBooking.adminReplySentBy || booking.adminReplySentBy || "";
@@ -8849,6 +8929,9 @@ async function updateBookingStatus(requestId, status, options = {}) {
         booking.confirmedDateTime = serverBooking.confirmedDateTime || booking.confirmedDateTime || "";
         booking.confirmedAt = serverBooking.confirmedAt || booking.confirmedAt || "";
         booking.confirmedChoice = serverBooking.confirmedChoice || booking.confirmedChoice || "";
+        booking.cancelledAt = serverBooking.cancelledAt || booking.cancelledAt || "";
+        booking.cancelledBy = serverBooking.cancelledBy || booking.cancelledBy || "";
+        if (Array.isArray(serverBooking.bookingConsultations)) booking.bookingConsultations = serverBooking.bookingConsultations;
       }
       applyBookingLineNotification(booking, notification);
       writeJson(STORAGE_KEYS.bookings, bookings);
@@ -8865,6 +8948,8 @@ async function updateBookingStatus(requestId, status, options = {}) {
     showBookingLineNotificationToast("別日時を提案しました", notification);
   } else if (normalizeBookingStatus(status) === "予約確定") {
     showBookingLineNotificationToast("予約確定しました", notification);
+  } else if (normalizeBookingStatus(status) === "キャンセル") {
+    showBookingLineNotificationToast("予約をキャンセルしました", notification);
   }
   return true;
 }
@@ -8941,6 +9026,29 @@ async function submitBookingResponse(button, requestId, mode) {
   return updated;
 }
 
+async function submitBookingCancellation(button, requestId) {
+  const booking = readJson(STORAGE_KEYS.bookings, []).find((item) => String(item.bookingRequestId || item.requestId || "") === String(requestId));
+  if (!booking) {
+    showToast("予約情報を取得できませんでした。");
+    return false;
+  }
+  if (normalizeBookingStatus(booking.status || booking.currentStatus) !== "キャンセル依頼") {
+    showToast("この予約はキャンセル依頼の状態ではありません。画面を更新してください。");
+    return false;
+  }
+  const now = new Date().toISOString();
+  const updated = await runBookingStatusAction(button, requestId, "cancelled", {
+    cancelledAt: now,
+    cancelledBy: getAdminSession()?.name || "スタッフ"
+  });
+  if (updated) {
+    appState.adminBookingResponseRequestId = "";
+    appState.adminBookingResponseMode = "";
+    renderApp();
+  }
+  return updated;
+}
+
 function buildDefaultBookingProposalMessage(dateTime) {
   return `ご希望いただいた時間でのご案内が難しいため、${formatDateTime(dateTime)}はいかがでしょうか？`;
 }
@@ -8988,7 +9096,12 @@ async function runBookingStatusAction(button, requestId, status, options = {}) {
   const originalLabel = button.textContent;
   button.textContent = "更新中…";
   button.setAttribute("aria-busy", "true");
-  showToast(normalizeBookingStatus(status) === "別日時提案中" ? "提案日時を保存してLINE通知を確認しています…" : "予約を確定してLINE通知を確認しています…");
+  const normalizedStatus = normalizeBookingStatus(status);
+  showToast(normalizedStatus === "別日時提案中"
+    ? "提案日時を保存してLINE通知を確認しています…"
+    : normalizedStatus === "キャンセル"
+      ? "キャンセルを保存してLINE通知を確認しています…"
+      : "予約を確定してLINE通知を確認しています…");
   try {
     return await updateBookingStatus(requestId, status, options);
   } finally {
@@ -10801,12 +10914,7 @@ function getNextReservation() {
   const bookings = readJson(STORAGE_KEYS.bookings, []);
   const todayStart = new Date(`${jstDateKey()}T00:00:00+09:00`).getTime();
   return bookings
-    .filter((booking) => (
-      String(booking.memberId || "") === String(profile.memberId || "") ||
-      (profile.lineUserId && String(booking.lineUserId || "") === String(profile.lineUserId)) ||
-      (profile.lineUserId && String(booking.userId || "") === String(profile.lineUserId)) ||
-      String(booking.userId || "") === String(profile.memberId || "")
-    ))
+    .filter((booking) => isBookingForProfile(booking, profile))
     .filter((booking) => !["キャンセル", "対応完了", "来店済み"].includes(normalizeBookingStatus(booking.status)))
     .map((booking) => ({
       ...booking,
@@ -10814,6 +10922,21 @@ function getNextReservation() {
     }))
     .filter((booking) => Number.isFinite(booking.nextReservationTime) && booking.nextReservationTime >= todayStart)
     .sort((a, b) => a.nextReservationTime - b.nextReservationTime)[0] || null;
+}
+
+function isBookingForProfile(booking, profile) {
+  return String(booking?.memberId || "") === String(profile?.memberId || "") ||
+    (profile?.lineUserId && String(booking?.lineUserId || "") === String(profile.lineUserId)) ||
+    (profile?.lineUserId && String(booking?.userId || "") === String(profile.lineUserId)) ||
+    String(booking?.userId || "") === String(profile?.memberId || "");
+}
+
+function getLatestCancelledReservation() {
+  const profile = getProfile();
+  return readJson(STORAGE_KEYS.bookings, [])
+    .filter((booking) => isBookingForProfile(booking, profile))
+    .filter((booking) => normalizeBookingStatus(booking.status || booking.currentStatus) === "キャンセル")
+    .sort((a, b) => String(b.cancelledAt || b.updatedAt || "").localeCompare(String(a.cancelledAt || a.updatedAt || "")))[0] || null;
 }
 
 function getMonthlyGachaStatus() {
