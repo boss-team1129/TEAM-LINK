@@ -7,6 +7,7 @@ import { webcrypto } from "node:crypto";
 globalThis.crypto ||= webcrypto;
 const workerModule = await import("../workers/web-push-relay/worker.mjs");
 const appSource = await readFile(new URL("../app.js", import.meta.url), "utf8");
+const indexSource = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const serviceWorkerSource = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
 const appsScriptSource = await readFile(new URL("../apps-script/WebPush.gs", import.meta.url), "utf8");
 const integrationPatch = await readFile(new URL("../apps-script/Code.gs.integration.patch", import.meta.url), "utf8");
@@ -34,6 +35,13 @@ test("manifestはMacのDock追加用standalone管理画面を定義する", () =
   assert.equal(manifest.start_url, "./?view=admin");
   assert.equal(manifest.scope, "./");
   assert.deepEqual(manifest.icons.map((icon) => icon.sizes), ["192x192", "512x512"]);
+});
+
+test("Chrome通知更新は本番HTMLとService Workerで同じビルド番号を使う", () => {
+  const build = appSource.match(/TEAM_LINK_FRONTEND_BUILD\s*=\s*"([^"]+)"/)?.[1];
+  assert.ok(build);
+  assert.match(indexSource, new RegExp(`app\\.js\\?v=${build}`));
+  assert.match(appSource, /TEAM_LINK_SERVICE_WORKER_URL = `\.\/service-worker\.js\?v=\$\{TEAM_LINK_FRONTEND_BUILD\}`/);
 });
 
 test("通知ON・OFF・拒否表示を明確に分ける", () => {
