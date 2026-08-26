@@ -309,8 +309,17 @@ function getWebPushSubscriptions_(ss) {
 }
 
 function ensureWebPushSheets_(ss) {
-  ensureSheet_(ss, "PushSubscriptions", TEAM_LINK_WEB_PUSH_SUBSCRIPTION_HEADERS_);
-  ensureSheet_(ss, "PushNotificationLog", TEAM_LINK_WEB_PUSH_LOG_HEADERS_);
+  registerWebPushSheetSchemas_();
+  ensureSheet_(ss, "PushSubscriptions");
+  ensureSheet_(ss, "PushNotificationLog");
+}
+
+function registerWebPushSheetSchemas_() {
+  if (typeof TEAM_LINK_SHEETS !== "object" || !TEAM_LINK_SHEETS) {
+    throw new Error("TEAM_LINK_SHEETS is not available");
+  }
+  TEAM_LINK_SHEETS.PushSubscriptions = TEAM_LINK_WEB_PUSH_SUBSCRIPTION_HEADERS_.slice();
+  TEAM_LINK_SHEETS.PushNotificationLog = TEAM_LINK_WEB_PUSH_LOG_HEADERS_.slice();
 }
 
 function webPushSubscriptionId_(endpoint) {
