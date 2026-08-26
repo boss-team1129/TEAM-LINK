@@ -1,0 +1,9 @@
+name = "team-link-web-push-relay"
+main = "worker.mjs"
+compatibility_date = "2026-08-01"
+
+# Configure these with `wrangler secret put`; never commit their values.
+# TEAM_LINK_WEB_PUSH_RELAY_SECRET
+# WEB_PUSH_VAPID_PRIVATE_KEY
+# WEB_PUSH_VAPID_PUBLIC_KEY
+# WEB_PUSH_CONTACT

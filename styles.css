@@ -5055,6 +5055,40 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
   scroll-margin-top: 18px;
 }
 
+.web-push-settings {
+  display: grid;
+  gap: 14px;
+  border-color: rgba(229, 196, 107, .48);
+}
+
+.web-push-settings > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.web-push-settings > header h3,
+.web-push-settings > header p,
+.web-push-status-message {
+  margin: 0;
+}
+
+.web-push-status-message {
+  padding: 11px 12px;
+  border: 1px solid rgba(228, 199, 126, .22);
+  border-radius: 14px;
+  color: rgba(255, 250, 239, .78);
+  background: rgba(255, 255, 255, .045);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.web-push-settings .primary-button,
+.web-push-settings .secondary-button {
+  min-height: 46px;
+}
+
 .booking-notification-email-settings > header {
   display: flex;
   align-items: flex-start;

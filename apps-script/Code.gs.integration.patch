@@ -1,0 +1,9 @@
+--- Code.gs
++++ Code.gs
+@@
+     case "getTeamLinkLineRoutes":
+       return getTeamLinkLineRoutes_();
+     default:
++      var webPushResult = routeTeamLinkWebPushAction_(action, payload, sessionToken);
++      if (webPushResult) return webPushResult;
+       throw new Error("未対応の処理です: " + action);

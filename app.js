@@ -1,7 +1,8 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260826-visit-count-1";
+const TEAM_LINK_FRONTEND_BUILD = "20260826-web-push-1";
+const TEAM_LINK_SERVICE_WORKER_URL = `./service-worker.js?v=${TEAM_LINK_FRONTEND_BUILD}`;
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
 const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1jMH8hnW1hoqXjgL984Mgw3IJKaW8aOfbI90hzbiLKQM";
@@ -101,6 +102,13 @@ const appState = {
   bookingNotificationSettings: null,
   bookingNotificationSettingsStatus: "pending",
   bookingNotificationSettingsBusy: false,
+  webPush: {
+    supported: false,
+    permission: "default",
+    status: "pending",
+    busy: false,
+    message: ""
+  },
   menuMasterSyncStatus: "pending",
   couponMasterSyncStatus: "pending",
   memberCouponSyncStatus: "pending",
@@ -664,6 +672,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderApp();
   openInitialView();
   if (appState.currentView === "adminView" && getAdminSession()) {
+    initializeAdminWebPush().catch((error) => console.warn("[TEAM LINK WEB PUSH INIT FAILED]", error));
     syncProductionAdminSection();
   } else {
     syncProductionState();
@@ -719,6 +728,9 @@ function bindNavigation() {
     if (adminTabButton) {
       appState.adminTab = adminTabButton.dataset.adminTab;
       renderAdmin();
+      if (isProductionApiMode() && appState.adminTab === "settings") {
+        refreshAdminWebPushState().catch((error) => console.warn("[TEAM LINK WEB PUSH STATE FAILED]", error));
+      }
       if (isProductionApiMode() && appState.adminTab === "settings" && (appState.lineNotificationSettingsStatus !== "ready" || appState.bookingNotificationSettingsStatus !== "ready")) {
         syncProductionAdminSettings().catch((error) => {
           console.error("[TEAM LINK ADMIN SETTINGS SYNC FAILED]", error);
@@ -835,6 +847,7 @@ function bindForms() {
     addAdminLog("login", "管理画面にログイン", admin.name);
     event.currentTarget.reset();
     renderAdmin();
+    await initializeAdminWebPush();
     await syncProductionAdminSection();
   });
 
@@ -7352,6 +7365,7 @@ function renderAdminSettings() {
       ` : ""}
     </article>
     ${renderBookingNotificationEmailSettings(bookingEmailSettings, bookingEmailSettingsStatus, canEditLineSettings)}
+    ${renderAdminWebPushSettings()}
     <div class="admin-grid">
       <article class="admin-card"><span>現在の権限</span><strong>${escapeHtml(session.label)}</strong><small>${session.role === "admin" ? "すべての閲覧・編集・削除が可能" : "来店確認、予約対応、クーポン確認のみ"}</small></article>
       <article class="admin-card"><span>予約先</span><strong>Hot Pepper</strong><small>${escapeHtml(settings.hotpepperReservationUrl || "未設定")}</small></article>
@@ -7402,6 +7416,160 @@ function renderBookingNotificationEmailSettings(settings, status, canEdit) {
   `;
 }
 
+function getWebPushCapability(environment = window) {
+  const serviceWorkerSupported = "serviceWorker" in environment.navigator;
+  const pushSupported = "PushManager" in environment;
+  const notificationSupported = "Notification" in environment;
+  return {
+    supported: Boolean(environment.isSecureContext && serviceWorkerSupported && pushSupported && notificationSupported),
+    permission: notificationSupported ? environment.Notification.permission : "unsupported"
+  };
+}
+
+function getWebPushDisplayState(webPush = appState.webPush) {
+  if (!webPush.supported) return { label: "利用不可", tone: "warning", action: "", button: "" };
+  if (webPush.permission === "denied") return { label: "通知OFF", tone: "warning", action: "", button: "Safariの通知設定をご確認ください" };
+  if (webPush.status === "on") return { label: "通知ON", tone: "success", action: "disableWebPushNotifications", button: "このMacの通知をOFFにする" };
+  if (webPush.status === "loading" || webPush.busy) return { label: "確認中", tone: "warning", action: "", button: "確認中…" };
+  return { label: "通知OFF", tone: "warning", action: "enableWebPushNotifications", button: "このMacで通知を受け取る" };
+}
+
+function renderAdminWebPushSettings() {
+  const state = getWebPushDisplayState();
+  return `
+    <article class="admin-preview web-push-settings" id="webPushSettings">
+      <header>
+        <div><p class="kicker">Mac notification</p><h3>このMacの通知設定</h3></div>
+        <span class="badge status-${escapeHtml(state.tone)}">${escapeHtml(state.label)}</span>
+      </header>
+      <p class="soft-note">新しい予約、日時変更相談、キャンセル依頼、来店確認待ちをMacへ通知します。既存のメール・LINE通知はそのまま継続します。</p>
+      ${appState.webPush.message ? `<p class="web-push-status-message">${escapeHtml(appState.webPush.message)}</p>` : ""}
+      ${state.action ? `<button type="button" class="${state.action === "disableWebPushNotifications" ? "secondary-button" : "primary-button"}" data-admin-action="${escapeHtml(state.action)}" ${appState.webPush.busy ? "disabled" : ""}>${escapeHtml(state.button)}</button>` : `<p class="web-push-status-message">${escapeHtml(state.button || "このブラウザはWeb Pushに対応していません。")}</p>`}
+    </article>
+  `;
+}
+
+async function initializeAdminWebPush() {
+  const capability = getWebPushCapability();
+  appState.webPush.supported = capability.supported;
+  appState.webPush.permission = capability.permission;
+  if (!capability.supported) {
+    appState.webPush.status = "unsupported";
+    appState.webPush.message = "Safari 16.1以降のMacでHTTPSから開いてください。";
+    return null;
+  }
+  await navigator.serviceWorker.register(TEAM_LINK_SERVICE_WORKER_URL, { scope: "./" });
+  return refreshAdminWebPushState();
+}
+
+async function refreshAdminWebPushState() {
+  const capability = getWebPushCapability();
+  appState.webPush.supported = capability.supported;
+  appState.webPush.permission = capability.permission;
+  if (!capability.supported || capability.permission !== "granted") {
+    appState.webPush.status = capability.supported ? "off" : "unsupported";
+    renderAdmin();
+    return appState.webPush;
+  }
+  appState.webPush.status = "loading";
+  renderAdmin();
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription();
+  appState.webPush.status = subscription ? "on" : "off";
+  appState.webPush.message = subscription ? "このMacは店舗通知を受信します。" : "通知許可はありますが、このMacは未登録です。";
+  renderAdmin();
+  return appState.webPush;
+}
+
+async function enableWebPushNotifications(button) {
+  if (appState.webPush.busy) return false;
+  appState.webPush.busy = true;
+  appState.webPush.status = "loading";
+  appState.webPush.message = "通知許可を確認しています…";
+  renderAdmin();
+  try {
+    const capability = getWebPushCapability();
+    if (!capability.supported) throw new Error("この環境はWeb Pushに対応していません。");
+    const permission = await Notification.requestPermission();
+    appState.webPush.permission = permission;
+    if (permission !== "granted") {
+      appState.webPush.status = "off";
+      appState.webPush.message = permission === "denied" ? "通知が拒否されています。Safariの設定から許可してください。" : "通知はまだ許可されていません。";
+      return false;
+    }
+    const registration = await navigator.serviceWorker.register(TEAM_LINK_SERVICE_WORKER_URL, { scope: "./" });
+    const configResult = await apiRequest("getWebPushConfig", {});
+    const config = configResult.config || configResult.data?.config || configResult.data || {};
+    if (!config.enabled || !config.publicKey) throw new Error("Web Pushのサーバー設定が完了していません。");
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(config.publicKey)
+      });
+    }
+    const serialized = subscription.toJSON();
+    await apiRequest("saveWebPushSubscription", {
+      endpoint: serialized.endpoint,
+      keys: serialized.keys || {},
+      deviceLabel: getWebPushDeviceLabel()
+    });
+    appState.webPush.status = "on";
+    appState.webPush.message = "このMacの通知をONにしました。";
+    showToast("このMacの通知をONにしました。");
+    return true;
+  } catch (error) {
+    console.error("[TEAM LINK WEB PUSH ENABLE FAILED]", error);
+    appState.webPush.status = "off";
+    appState.webPush.message = error?.message || "通知を設定できませんでした。";
+    showToast(appState.webPush.message);
+    return false;
+  } finally {
+    appState.webPush.busy = false;
+    renderAdmin();
+    if (button?.isConnected) button.disabled = false;
+  }
+}
+
+async function disableWebPushNotifications(button) {
+  if (appState.webPush.busy) return false;
+  appState.webPush.busy = true;
+  renderAdmin();
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) {
+      await apiRequest("disableWebPushSubscription", { endpoint: subscription.endpoint });
+      await subscription.unsubscribe();
+    }
+    appState.webPush.status = "off";
+    appState.webPush.message = "このMacの通知をOFFにしました。";
+    showToast("このMacの通知をOFFにしました。");
+    return true;
+  } catch (error) {
+    console.error("[TEAM LINK WEB PUSH DISABLE FAILED]", error);
+    appState.webPush.message = error?.message || "通知設定を変更できませんでした。";
+    showToast(appState.webPush.message);
+    return false;
+  } finally {
+    appState.webPush.busy = false;
+    renderAdmin();
+    if (button?.isConnected) button.disabled = false;
+  }
+}
+
+function getWebPushDeviceLabel() {
+  const platform = String(navigator.platform || "");
+  return /Mac/i.test(platform) ? "店舗Mac Safari" : "TEAM LINK管理端末";
+}
+
+function urlBase64ToUint8Array(value) {
+  const padding = "=".repeat((4 - String(value || "").length % 4) % 4);
+  const base64 = (String(value || "") + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)));
+}
+
 function handleAdminAction(button) {
   const action = button.dataset.adminAction;
   const id = button.dataset.id || "";
@@ -7411,6 +7579,8 @@ function handleAdminAction(button) {
   if (action === "addBookingNotificationEmail") return addBookingNotificationEmail(button);
   if (action === "removeBookingNotificationEmail") return removeBookingNotificationEmail(button);
   if (action === "saveBookingNotificationSettings") return saveBookingNotificationSettings(button);
+  if (action === "enableWebPushNotifications") return enableWebPushNotifications(button);
+  if (action === "disableWebPushNotifications") return disableWebPushNotifications(button);
   if (action === "simulateVisit") return simulateVisitReception();
   if (action === "toggleVisitHistory") {
     appState.adminVisitShowHistory = !appState.adminVisitShowHistory;

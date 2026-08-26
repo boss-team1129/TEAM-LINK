@@ -1,0 +1,25 @@
+{
+  "id": "./?view=admin",
+  "name": "TEAM LINK 管理",
+  "short_name": "TEAM LINK",
+  "description": "TEAM hair 店舗管理アプリ",
+  "start_url": "./?view=admin",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0b0d",
+  "theme_color": "#0b0b0d",
+  "icons": [
+    {
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
