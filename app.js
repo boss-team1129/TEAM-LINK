@@ -11806,12 +11806,11 @@ async function syncProductionState() {
 }
 
 function scheduleProductionGachaStateSync() {
-  const start = () => ensureProductionGachaState().catch((error) => console.warn("[TEAM LINK GACHA SYNC FAILED]", error));
-  if ("requestIdleCallback" in window) {
-    window.requestIdleCallback(start, { timeout: 3000 });
-    return;
-  }
-  window.setTimeout(start, 1200);
+  if (getCurrentRouteKey() !== "home") return;
+  window.setTimeout(() => {
+    if (getCurrentRouteKey() !== "home") return;
+    ensureProductionGachaState().catch((error) => console.warn("[TEAM LINK GACHA SYNC FAILED]", error));
+  }, 3000);
 }
 
 async function ensureProductionGachaState() {

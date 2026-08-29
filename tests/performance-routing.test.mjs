@@ -47,6 +47,7 @@ test("本番同期は予約・カタログを並列化しガチャは画面に�
   assert.match(syncSource, /TEAM_LINK_GACHA_ROUTE_KEYS\.has\(getCurrentRouteKey\(\)\)/);
   assert.match(syncSource, /prioritizeGacha \? ensureProductionGachaState\(\) : null/);
   assert.match(syncSource, /else scheduleProductionGachaStateSync\(\)/);
+  assert.match(syncSource, /getCurrentRouteKey\(\) !== "home"\) return/);
 });
 
 test("同一の読取APIは進行中リクエストを再利用する", () => {
