@@ -37,6 +37,16 @@ Member-only actions use LINE
 message/postback events so the webhook can identify `source.userId` and reuse the
 existing member authentication and check-in logic.
 
+## Performance diagnostics
+
+Append `perf=1` to a TEAM LINK URL during development to emit timing entries for
+startup, signed-member verification, API requests, route rendering, and gacha.
+Normal production URLs stay quiet. `apps-script/LineWebhookPerformance.gs` and
+its integration patch add secret-free stage timings to the existing LINE webhook
+and move the existing personal-menu Push earlier, after member verification but
+before VisitHistory/VisitReceptions reconciliation. The existing Push function,
+check-in rules, and `visitRecorded:false` name-message behavior remain unchanged.
+
 ## Mac admin Web Push (local implementation)
 
 The admin notification feature is additive and is not deployed automatically.

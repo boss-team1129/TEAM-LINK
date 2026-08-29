@@ -1,0 +1,42 @@
+--- Code.gs
++++ Code.gs
+@@ receiveLineMessage_(payload)
+ function receiveLineMessage_(payload) {
++  var linePerf = createLineWebhookPerformanceTrace_();
+   validateRequired_(payload, ["lineUserId", "messageType"]);
+   const ss = getTeamLinkSpreadsheet_();
+   const messageType = String(payload.messageType || "").trim();
++  logLineWebhookPerformance_(linePerf, "WEBHOOK_VALIDATED", { messageType: messageType });
+@@ linked member resolution
+   // Keep the existing Members lookup and resolve/register logic unchanged.
++  logLineWebhookPerformance_(linePerf, "MEMBER_RESOLVED", {
++    memberFound: Boolean(member && member.memberId),
++    linked: Boolean(member && member.lineUserId)
++  });
+@@ after duplicate/open reception lookup, before VisitHistory and VisitReceptions writes
++  // Send the already-built personal menu as soon as identity is proven. The
++  // existing VisitHistory/VisitReceptions reconciliation continues afterwards,
++  // but no longer delays the user-visible LINE response.
++  const personalMenu = buildLinkedMemberMenu_(member);
++  const linePush = sendLinkedMemberMenu_(lineUserId, member, personalMenu);
++  logLineWebhookPerformance_(linePerf, "LINE_MENU_PUSH_COMPLETE", {
++    status: linePush && linePush.success === false ? "failed" : "success",
++    lineHttpStatus: Number(linePush && (linePush.httpStatus || linePush.status) || 0)
++  });
+@@ existing today-visit branch
+-    const personalMenu = buildLinkedMemberMenu_(member);
+-    const linePush = sendLinkedMemberMenu_(lineUserId, member, personalMenu);
+     // Keep the existing response and visitRecorded:false behavior.
+@@ existing normal completion branch
+-  const personalMenu = buildLinkedMemberMenu_(member);
+-  const linePush = sendLinkedMemberMenu_(lineUserId, member, personalMenu);
+   // Reuse the linePush/personalMenu variables created above. Do not send twice.
++  logLineWebhookPerformance_(linePerf, "RECEPTION_RECONCILED", {
++    status: "success",
++    visitRecorded: false
++  });
++  logLineWebhookPerformance_(linePerf, "WEBHOOK_COMPLETE", {
++    status: "success",
++    visitRecorded: false
++  });
+

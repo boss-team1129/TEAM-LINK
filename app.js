@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260826-chrome-push-2";
+const TEAM_LINK_FRONTEND_BUILD = "20260829-performance-1";
 const TEAM_LINK_SERVICE_WORKER_URL = `./service-worker.js?v=${TEAM_LINK_FRONTEND_BUILD}`;
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
@@ -9,6 +9,17 @@ const TEAM_LINK_DATA_SPREADSHEET_ID = window.TEAM_LINK_DATA_SPREADSHEET_ID || "1
 const LOUNGE_RELEASE_DATE = "2026-10-01";
 const ASSET_VERSION = "20260801-character-hires-1";
 const gachaRevealAssetCache = new Map();
+const teamLinkApiInFlight = new Map();
+const TEAM_LINK_DEDUPED_API_ACTIONS = new Set([
+  "getLinkedMemberProfile", "getMyBookingRequests", "getBookingCatalog", "getGachaConfig",
+  "getPublishedRewards", "getUserCoupons", "checkMonthlyDrawStatus", "getUserBinder",
+  "getPastBinderHistory", "getCollectionRewards", "getWebPushSubscriptionStatus"
+]);
+const TEAM_LINK_PERF_ENABLED = new URLSearchParams(window.location.search).get("perf") === "1";
+const TEAM_LINK_BOOT_STARTED_AT = performance.now();
+const TEAM_LINK_BOOKING_CATALOG_TTL_MS = 5 * 60 * 1000;
+const TEAM_LINK_GACHA_ROUTE_KEYS = new Set(["gacha", "mycards", "collectionRewards", "gachaHistory"]);
+let teamLinkGachaSyncPromise = null;
 const LEGACY_FIXED_PROFILE = Object.freeze({
   memberId: "TL-000001",
   lineUserId: "U-demo-1"
@@ -44,7 +55,9 @@ const STORAGE_KEYS = {
   adminFortunes: "teamLinkAdminFortunes",
   adminLogs: "teamLinkAdminAuditLogs",
   storeSettings: "teamLinkStoreSettings",
-  reservationMenus: "teamLinkReservationMenus"
+  reservationMenus: "teamLinkReservationMenus",
+  bookingCatalogSyncedAt: "teamLinkBookingCatalogSyncedAt",
+  bookingCatalogSyncedFor: "teamLinkBookingCatalogSyncedFor"
 };
 
 const viewMap = {
@@ -658,29 +671,103 @@ const adminTabs = [
   { key: "settings", label: "LINE通知設定" }
 ];
 
-document.addEventListener("DOMContentLoaded", async () => {
-  if (await reloadIfFrontendBuildIsStale()) return;
-  const splash = document.getElementById("splashScreen");
-  window.setTimeout(() => {
-    splash?.classList.add("is-hidden");
-  }, 1080);
+prepareInitialViewFromLocation();
+
+document.addEventListener("DOMContentLoaded", () => {
+  startTeamLinkApplication().catch((error) => {
+    console.error("[TEAM LINK STARTUP FAILED]", error);
+    document.getElementById("splashScreen")?.classList.add("is-hidden");
+    showToast("画面を読み込めませんでした。再読み込みしてください。");
+  });
+});
+
+async function startTeamLinkApplication() {
+  performanceTrace("app.start", TEAM_LINK_BOOT_STARTED_AT, { view: getInitialRouteState().view });
   ensureDemoState();
-  await initializeLinkedIdentityFromUrl();
   applyStoreSettings();
   renderBookingFormOptions();
   bindNavigation();
   bindForms();
   bindBookingFormInputs();
   bindHomeCarousel();
-  renderApp();
-  openInitialView();
+  const deferPrivateRender = requiresLinkedIdentityVerification();
+  if (deferPrivateRender) updateNav(getInitialRouteState().view);
+  else openInitialView();
+  hideSplashAfterInitialPaint();
+  scheduleFrontendBuildCheck();
+  performanceTrace("app.first-view", TEAM_LINK_BOOT_STARTED_AT, { view: getCurrentRouteKey() });
+
+  const identityStartedAt = performance.now();
+  const identityVerified = await initializeLinkedIdentityFromUrl();
+  performanceTrace("identity.ready", identityStartedAt, {
+    linked: isLineLinkedCustomer(getProfile()),
+    source: "signed-url"
+  });
+  if (deferPrivateRender && identityVerified) openInitialView();
+  else if (!deferPrivateRender) renderApp();
+  if (deferPrivateRender && !identityVerified) return;
+
   if (appState.currentView === "adminView" && getAdminSession()) {
     initializeAdminWebPush().catch((error) => console.warn("[TEAM LINK WEB PUSH INIT FAILED]", error));
     syncProductionAdminSection();
-  } else {
-    syncProductionState();
+    return;
   }
-});
+  syncProductionState();
+}
+
+function requiresLinkedIdentityVerification() {
+  const params = new URLSearchParams(location.search);
+  const memberId = String(params.get("memberId") || "").trim();
+  const lineUserId = String(params.get("lineUserId") || "").trim();
+  const memberToken = String(params.get("memberToken") || "").trim();
+  if (!memberId && !lineUserId && !memberToken) return false;
+  const current = getProfile();
+  return memberId !== String(current.memberId || current.linkedMemberId || "")
+    || lineUserId !== String(current.lineUserId || "")
+    || memberToken !== String(current.memberToken || "");
+}
+
+function getInitialRouteState() {
+  const params = new URLSearchParams(location.search);
+  const requestedView = params.get("view") || params.get("page") || "home";
+  return {
+    view: viewMap[requestedView] ? requestedView : "home",
+    adminSection: String(params.get("section") || "").trim(),
+    requestId: String(params.get("requestId") || "").trim()
+  };
+}
+
+function prepareInitialViewFromLocation() {
+  const route = getInitialRouteState();
+  const viewId = viewMap[route.view] || viewMap.home;
+  appState.currentView = viewId;
+  appState.previousView = viewId;
+  document.querySelectorAll(".view").forEach((view) => view.classList.toggle("is-active", view.id === viewId));
+  document.body.classList.toggle("is-admin-view", route.view === "admin");
+  document.body.classList.toggle("is-home-view", route.view === "home");
+  if (route.view === "admin" && adminTabs.some((tab) => tab.key === route.adminSection)) {
+    appState.adminTab = route.adminSection;
+    if (route.adminSection === "bookings") appState.adminFocusedBookingRequestId = route.requestId;
+  }
+}
+
+function hideSplashAfterInitialPaint() {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      document.getElementById("splashScreen")?.classList.add("is-hidden");
+      performanceTrace("app.visible", TEAM_LINK_BOOT_STARTED_AT, { view: getCurrentRouteKey() });
+    });
+  });
+}
+
+function scheduleFrontendBuildCheck() {
+  const check = () => reloadIfFrontendBuildIsStale();
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(check, { timeout: 2500 });
+    return;
+  }
+  window.setTimeout(check, 1200);
+}
 
 async function reloadIfFrontendBuildIsStale() {
   try {
@@ -708,6 +795,13 @@ function bindNavigation() {
     choiceButton.classList.add("is-pressed");
     choiceButton.closest("[data-gacha-choice-stage]")?.classList.add("has-pointer-feedback");
   }, { passive: true });
+  document.body.addEventListener("pointerup", (event) => {
+    const choiceButton = event.target.closest("[data-gacha-action='selectCard']");
+    if (!choiceButton || appState.gachaChoiceInProgress || event.button > 0 || event.pointerType === "mouse") return;
+    event.preventDefault();
+    choiceButton.dataset.gachaPointerHandledAt = String(performance.now());
+    handleGachaAction(choiceButton);
+  });
   document.body.addEventListener("click", (event) => {
     const viewButton = event.target.closest("[data-view]");
     const messageButton = event.target.closest("[data-message]");
@@ -796,6 +890,8 @@ function bindNavigation() {
       return;
     }
     if (gachaActionButton) {
+      const pointerHandledAt = Number(gachaActionButton.dataset.gachaPointerHandledAt || 0);
+      if (gachaActionButton.dataset.gachaAction === "selectCard" && performance.now() - pointerHandledAt < 900) return;
       handleGachaAction(gachaActionButton);
       return;
     }
@@ -2362,18 +2458,36 @@ function buildReservationCountdownLabel(value) {
 
 function renderApp() {
   refreshGachaCardStates();
-  appState.todayFortune = buildFortunePreview();
-  renderHome();
-  renderReservationStatus();
-  renderCoupons();
-  renderFortune();
-  renderGacha();
-  renderMyCards();
-  renderCollectionRewardsPage();
-  renderGachaHistoryPage();
-  renderLounge();
-  renderMyPage();
-  renderAdmin();
+  const routeKey = getCurrentRouteKey();
+  if (["home", "fortune", "mypage"].includes(routeKey)) appState.todayFortune = buildFortunePreview();
+  renderCurrentView(routeKey);
+}
+
+function getCurrentRouteKey() {
+  return Object.keys(viewMap).find((key) => viewMap[key] === appState.currentView) || "home";
+}
+
+function renderCurrentView(routeKey = getCurrentRouteKey()) {
+  if (routeKey === "home") renderHome();
+  if (routeKey === "reservation") renderReservationStatus();
+  if (routeKey === "booking") {
+    renderBookingMenuChoices();
+    renderBookingCouponChoices();
+    renderBookingMySelectionChoices();
+    updateBookingConfirm();
+  }
+  if (routeKey === "fortune") renderFortune();
+  if (routeKey === "coupons") renderCoupons();
+  if (routeKey === "gacha") renderGacha();
+  if (routeKey === "mycards") renderMyCards();
+  if (routeKey === "collectionRewards") renderCollectionRewardsPage();
+  if (routeKey === "gachaHistory") renderGachaHistoryPage();
+  if (routeKey === "lounge") renderLounge();
+  if (routeKey === "mypage") renderMyPage();
+  if (routeKey === "admin") renderAdmin();
+  if (TEAM_LINK_GACHA_ROUTE_KEYS.has(routeKey) && isProductionApiMode()) {
+    ensureProductionGachaState().catch((error) => console.warn("[TEAM LINK GACHA SYNC FAILED]", error));
+  }
 }
 
 function renderGachaCollectionViews() {
@@ -2540,7 +2654,7 @@ async function initializeLinkedIdentityFromUrl() {
   const memberId = String(params.get("memberId") || current.memberId || current.linkedMemberId || "").trim();
   const lineUserId = String(params.get("lineUserId") || current.lineUserId || "").trim();
   const memberToken = String(params.get("memberToken") || current.memberToken || "").trim();
-  if (!memberId || !lineUserId || !memberToken || !isProductionApiMode()) return;
+  if (!memberId || !lineUserId || !memberToken || !isProductionApiMode()) return !hasIdentityParams;
   try {
     const result = await apiRequest("getLinkedMemberProfile", { memberId, lineUserId, memberToken });
     const member = result.data?.member || result.member;
@@ -2571,9 +2685,11 @@ async function initializeLinkedIdentityFromUrl() {
       const cleanQuery = params.toString();
       history.replaceState({}, "", `${location.pathname}${cleanQuery ? `?${cleanQuery}` : ""}${location.hash}`);
     }
+    return true;
   } catch (error) {
     console.error("[TEAM LINK LINKED IDENTITY FAILED]", error);
     showToast("本人情報を確認できませんでした。LINEからもう一度開いてください。");
+    return false;
   }
 }
 
@@ -2708,17 +2824,16 @@ function getReservationCouponDisplayText(booking) {
 }
 
 function openInitialView() {
-  const params = new URLSearchParams(location.search);
-  const view = params.get("view") || params.get("page") || "home";
-  const adminSection = String(params.get("section") || "").trim();
-  if (view === "admin" && adminTabs.some((tab) => tab.key === adminSection)) {
-    appState.adminTab = adminSection;
-    if (adminSection === "bookings") appState.adminFocusedBookingRequestId = String(params.get("requestId") || "").trim();
+  const route = getInitialRouteState();
+  if (route.view === "admin" && adminTabs.some((tab) => tab.key === route.adminSection)) {
+    appState.adminTab = route.adminSection;
+    if (route.adminSection === "bookings") appState.adminFocusedBookingRequestId = route.requestId;
   }
-  showView(viewMap[view] ? view : "home", { replace: true });
+  showView(route.view, { replace: true, instant: true });
 }
 
 function showView(viewKey, options = {}) {
+  const viewStartedAt = performance.now();
   if (viewKey === "loungeRegister" && !isLoungeOpen()) {
     showToast("ご縁ラウンジは10月スタート予定です。ただいま準備中です。");
     viewKey = "lounge";
@@ -2736,19 +2851,11 @@ function showView(viewKey, options = {}) {
   const url = new URL(location.href);
   url.searchParams.set("view", routeKey);
   history[options.replace ? "replaceState" : "pushState"]({ view: routeKey }, "", url);
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: options.instant ? "auto" : "smooth" });
   updateNav(routeKey);
-  if (routeKey === "home") renderHome();
   if (routeKey === "booking") restoreBookingDraft();
-  if (routeKey === "fortune") renderFortune();
-  if (routeKey === "coupons") renderCoupons();
-  if (routeKey === "gacha") renderGacha();
-  if (routeKey === "mycards") renderMyCards();
-  if (routeKey === "collectionRewards") renderCollectionRewardsPage();
-  if (routeKey === "gachaHistory") renderGachaHistoryPage();
-  if (routeKey === "lounge") renderLounge();
-  if (routeKey === "mypage") renderMyPage();
-  if (routeKey === "admin") renderAdmin();
+  renderCurrentView(routeKey);
+  window.requestAnimationFrame(() => performanceTrace("view.visible", viewStartedAt, { view: routeKey }));
 }
 
 window.addEventListener("popstate", () => {
@@ -4103,12 +4210,13 @@ async function selectGachaCard(button) {
   const pointerStartedAt = Number(button.dataset.gachaPointerStartedAt || performance.now());
   const clickStartedAt = performance.now();
   stage?.classList.add("is-selecting", `selected-${choice}`);
+  stage?.setAttribute("aria-busy", "true");
   stage?.querySelectorAll("button").forEach((item) => {
     item.disabled = true;
     if (item !== button) item.classList.add("is-fading");
     else item.classList.add("is-picked", "is-pressed");
   });
-  console.info("[TEAM LINK GACHA] choice animation start", {
+  performanceTraceEvent("gacha.interaction", {
     choice,
     month: latestStatus.month,
     pointerToClickMs: Math.round(clickStartedAt - pointerStartedAt)
@@ -4117,7 +4225,7 @@ async function selectGachaCard(button) {
   try {
     await waitForGachaInteractionPaint();
     const apiStartedAt = performance.now();
-    console.info("[TEAM LINK GACHA] immediate feedback painted", {
+    performanceTraceEvent("gacha.feedback", {
       pointerToFeedbackMs: Math.round(apiStartedAt - pointerStartedAt)
     });
     const draw = isProductionApiMode() ? await drawGachaRemote(latestStatus.month, { silent: true, skipPreflight: true }) : createGachaDraw(latestStatus.month);
@@ -4127,12 +4235,12 @@ async function selectGachaCard(button) {
       return;
     }
     const apiCompletedAt = performance.now();
-    console.info("[TEAM LINK GACHA] production draw ready", {
+    performanceTraceEvent("gacha.draw", {
       apiMs: Math.round(apiCompletedAt - apiStartedAt),
       pointerToResultMs: Math.round(apiCompletedAt - pointerStartedAt)
     });
     await completeGachaReveal(draw);
-    console.info("[TEAM LINK GACHA] front card visible", {
+    performanceTraceEvent("gacha.result-visible", {
       pointerToFrontCompleteMs: Math.round(performance.now() - pointerStartedAt)
     });
     const saved = await saveGachaDraw(draw);
@@ -4162,6 +4270,7 @@ async function selectGachaCard(button) {
     });
   } finally {
     appState.gachaChoiceInProgress = false;
+    stage?.removeAttribute("aria-busy");
   }
 }
 
@@ -11529,6 +11638,23 @@ function endOfMonthLabel() {
 async function apiRequest(action, payload = {}, options = {}) {
   const apiUrl = options.apiUrl || TEAM_LINK_API_URL;
   if (!apiUrl) throw new Error("TEAM LINK APIが設定されていません。");
+  if (!options.skipDedupe && TEAM_LINK_DEDUPED_API_ACTIONS.has(action)) {
+    const dedupeKey = `${apiUrl}|${getApiSessionToken()}|${action}|${JSON.stringify(payload || {})}`;
+    const existingRequest = teamLinkApiInFlight.get(dedupeKey);
+    if (existingRequest) {
+      performanceTraceEvent("api.reused", { action });
+      return existingRequest;
+    }
+    const request = apiRequest(action, payload, { ...options, skipDedupe: true });
+    teamLinkApiInFlight.set(dedupeKey, request);
+    try {
+      return await request;
+    } finally {
+      if (teamLinkApiInFlight.get(dedupeKey) === request) teamLinkApiInFlight.delete(dedupeKey);
+    }
+  }
+  const apiStartedAt = performance.now();
+  let apiStatus = "failed";
   const requestPayload = { action, payload: payload || {}, sessionToken: getApiSessionToken() };
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), getApiTimeoutMs(action));
@@ -11562,6 +11688,7 @@ async function apiRequest(action, payload = {}, options = {}) {
         logApiFailure({ action, url: response.url || apiUrl, status: response.status, body: text.slice(0, 500), error, transport: "POST" });
         throw error;
       }
+      apiStatus = "success";
       return data;
     }
     throw new Error("TEAM LINK APIへ接続できませんでした。");
@@ -11575,6 +11702,7 @@ async function apiRequest(action, payload = {}, options = {}) {
     throw error;
   } finally {
     window.clearTimeout(timer);
+    performanceTrace("api.request", apiStartedAt, { action, status: apiStatus });
   }
 }
 
@@ -11648,48 +11776,49 @@ function createTransactionId(prefix = "TX") {
 
 async function syncProductionState() {
   if (!isProductionApiMode()) return;
+  const syncStartedAt = performance.now();
   try {
     const profile = getProfile();
     const userKey = getCurrentUserKey();
-    if (isLineLinkedCustomer(profile)) {
-      try {
-        await syncProductionCustomerBookings(profile, { render: false });
-      } catch (error) {
+    const customerBookingsPromise = isLineLinkedCustomer(profile)
+      ? syncProductionCustomerBookings(profile, { render: false }).catch((error) => {
         console.warn("[TEAM LINK CUSTOMER BOOKING SYNC FAILED]", error);
-      }
-    }
-    appState.menuMasterSyncStatus = "loading";
-    appState.couponMasterSyncStatus = "loading";
-    appState.memberCouponSyncStatus = "loading";
-    try {
-      const catalogResult = await apiRequest("getBookingCatalog", { memberId: userKey });
-      const coupons = catalogResult.coupons || catalogResult.data?.coupons;
-      const serverMenus = catalogResult.menus || catalogResult.data?.menus;
-      const memberCoupons = catalogResult.memberCoupons || catalogResult.data?.memberCoupons;
-      if (!Array.isArray(coupons)) throw new Error("クーポンマスタの形式が正しくありません。");
-      if (!Array.isArray(serverMenus)) throw new Error("MenuMasterの形式が正しくありません。");
-      if (!Array.isArray(memberCoupons)) throw new Error("会員クーポンの形式が正しくありません。");
-      writeJson(STORAGE_KEYS.adminCoupons, coupons.map(mapServerCouponMasterToLocal));
-      writeJson(STORAGE_KEYS.reservationMenus, serverMenus.map(mapServerMenuMasterToLocal));
-      writeJson(STORAGE_KEYS.myCoupons, memberCoupons.map(mapServerMemberCouponToLocal));
-      appState.couponMasterSyncStatus = "synced";
-      appState.menuMasterSyncStatus = "synced";
-      appState.memberCouponSyncStatus = "synced";
-    } catch (error) {
-      writeJson(STORAGE_KEYS.adminCoupons, []);
-      writeJson(STORAGE_KEYS.reservationMenus, []);
-      writeJson(STORAGE_KEYS.myCoupons, []);
-      appState.couponMasterSyncStatus = "unavailable";
-      appState.menuMasterSyncStatus = "unavailable";
-      appState.memberCouponSyncStatus = "unavailable";
-      console.warn("[TEAM LINK BOOKING CATALOG SYNC FAILED]", error);
-    }
+      })
+      : Promise.resolve();
+    const catalogPromise = syncProductionBookingCatalog(userKey);
+    const prioritizeGacha = TEAM_LINK_GACHA_ROUTE_KEYS.has(getCurrentRouteKey());
+    const gachaResultsPromise = prioritizeGacha ? ensureProductionGachaState() : null;
+    await Promise.allSettled([customerBookingsPromise, catalogPromise]);
     renderBookingMenuChoices();
     renderBookingCouponChoices();
     renderBookingMySelectionChoices();
     updateBookingConfirm();
     renderApp();
+    if (gachaResultsPromise) await gachaResultsPromise;
+    else scheduleProductionGachaStateSync();
+    if (appState.currentView === "adminView" && getAdminSession()) await syncProductionAdminState({ render: false });
+    renderApp();
+    performanceTrace("production.sync", syncStartedAt, { status: "success", gachaPriority: prioritizeGacha });
+  } catch (error) {
+    performanceTrace("production.sync", syncStartedAt, { status: "failed" });
+    showToast("通信に失敗しました。時間をおいてもう一度お試しください");
+  }
+}
 
+function scheduleProductionGachaStateSync() {
+  const start = () => ensureProductionGachaState().catch((error) => console.warn("[TEAM LINK GACHA SYNC FAILED]", error));
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(start, { timeout: 3000 });
+    return;
+  }
+  window.setTimeout(start, 1200);
+}
+
+async function ensureProductionGachaState() {
+  if (teamLinkGachaSyncPromise) return teamLinkGachaSyncPromise;
+  const profile = getProfile();
+  const userKey = getCurrentUserKey();
+  teamLinkGachaSyncPromise = (async () => {
     const results = await Promise.allSettled([
       apiRequest("getGachaConfig", {}),
       apiRequest("getPublishedRewards", {}),
@@ -11720,10 +11849,48 @@ async function syncProductionState() {
         writeGachaSettings([{ issueMonth: gachaConfig.data.config.currentYearMonth, title: "本番ガチャ", status: "公開" }, ...settings]);
       }
     }
-    if (appState.currentView === "adminView" && getAdminSession()) await syncProductionAdminState({ render: false });
-    renderApp();
+    if (TEAM_LINK_GACHA_ROUTE_KEYS.has(getCurrentRouteKey())) renderApp();
+    return results;
+  })();
+  return teamLinkGachaSyncPromise;
+}
+
+async function syncProductionBookingCatalog(userKey) {
+  const lastSyncedAt = Number(localStorage.getItem(STORAGE_KEYS.bookingCatalogSyncedAt) || 0);
+  const lastSyncedFor = String(localStorage.getItem(STORAGE_KEYS.bookingCatalogSyncedFor) || "");
+  const hasFreshCatalog = lastSyncedFor === String(userKey || "")
+    && lastSyncedAt > 0
+    && Date.now() - lastSyncedAt < TEAM_LINK_BOOKING_CATALOG_TTL_MS;
+  appState.menuMasterSyncStatus = hasFreshCatalog ? "synced" : "loading";
+  appState.couponMasterSyncStatus = hasFreshCatalog ? "synced" : "loading";
+  appState.memberCouponSyncStatus = hasFreshCatalog ? "synced" : "loading";
+  if (hasFreshCatalog) {
+    performanceTraceEvent("booking-catalog.cache-hit", { ageMs: Date.now() - lastSyncedAt });
+    return true;
+  }
+  try {
+    const catalogResult = await apiRequest("getBookingCatalog", { memberId: userKey });
+    const coupons = catalogResult.coupons || catalogResult.data?.coupons;
+    const serverMenus = catalogResult.menus || catalogResult.data?.menus;
+    const memberCoupons = catalogResult.memberCoupons || catalogResult.data?.memberCoupons;
+    if (!Array.isArray(coupons)) throw new Error("クーポンマスタの形式が正しくありません。");
+    if (!Array.isArray(serverMenus)) throw new Error("MenuMasterの形式が正しくありません。");
+    if (!Array.isArray(memberCoupons)) throw new Error("会員クーポンの形式が正しくありません。");
+    writeJson(STORAGE_KEYS.adminCoupons, coupons.map(mapServerCouponMasterToLocal));
+    writeJson(STORAGE_KEYS.reservationMenus, serverMenus.map(mapServerMenuMasterToLocal));
+    writeJson(STORAGE_KEYS.myCoupons, memberCoupons.map(mapServerMemberCouponToLocal));
+    localStorage.setItem(STORAGE_KEYS.bookingCatalogSyncedAt, String(Date.now()));
+    localStorage.setItem(STORAGE_KEYS.bookingCatalogSyncedFor, String(userKey || ""));
+    appState.couponMasterSyncStatus = "synced";
+    appState.menuMasterSyncStatus = "synced";
+    appState.memberCouponSyncStatus = "synced";
+    return true;
   } catch (error) {
-    showToast("通信に失敗しました。時間をおいてもう一度お試しください");
+    appState.couponMasterSyncStatus = "unavailable";
+    appState.menuMasterSyncStatus = "unavailable";
+    appState.memberCouponSyncStatus = "unavailable";
+    console.warn("[TEAM LINK BOOKING CATALOG SYNC FAILED]", error);
+    return false;
   }
 }
 
@@ -12421,6 +12588,20 @@ function mergeServerMemberCoupon(serverCoupon) {
 
 function summaryRows(rows) {
   return rows.map(([label, value]) => `<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
+}
+
+function performanceTrace(label, startedAt, details = {}) {
+  if (!TEAM_LINK_PERF_ENABLED) return;
+  console.info("[TEAM LINK PERF] " + JSON.stringify({
+    label,
+    durationMs: Math.round(performance.now() - Number(startedAt || performance.now())),
+    ...details
+  }));
+}
+
+function performanceTraceEvent(label, details = {}) {
+  if (!TEAM_LINK_PERF_ENABLED) return;
+  console.info("[TEAM LINK PERF] " + JSON.stringify({ label, ...details }));
 }
 
 function readJson(key, fallback) {

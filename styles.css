@@ -202,7 +202,7 @@ body {
     radial-gradient(circle at 50% 40%, rgba(229, 188, 102, .25), transparent 25%),
     radial-gradient(circle at 78% 20%, rgba(255,255,255,.08), transparent 18%),
     linear-gradient(145deg, #030405, #15110d 58%, #090807);
-  transition: opacity .72s ease, visibility .72s ease;
+  transition: opacity .18s ease, visibility .18s ease;
 }
 
 .splash-screen::after {
@@ -2812,26 +2812,41 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
   animation-delay: -1.3s;
 }
 
-.gacha-choice-card:hover,
 .gacha-choice-card:focus-visible {
   filter: brightness(1.16);
   box-shadow: 0 30px 62px rgba(0,0,0,.46), 0 0 42px rgba(232,197,124,.36);
   outline: none;
 }
 
-.gacha-choice-card.is-center:hover,
 .gacha-choice-card.is-center:focus-visible {
   transform: translateX(0) translateY(-8px) translateZ(48px) rotateX(3deg);
 }
 
-.gacha-choice-card.is-left:hover,
 .gacha-choice-card.is-left:focus-visible {
   transform: translateX(-92px) translateY(-6px) rotateY(10deg) rotateZ(-1deg) scale(.91);
 }
 
-.gacha-choice-card.is-right:hover,
 .gacha-choice-card.is-right:focus-visible {
   transform: translateX(92px) translateY(-6px) rotateY(-10deg) rotateZ(1deg) scale(.91);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .gacha-choice-card:hover {
+    filter: brightness(1.16);
+    box-shadow: 0 30px 62px rgba(0,0,0,.46), 0 0 42px rgba(232,197,124,.36);
+  }
+
+  .gacha-choice-card.is-center:hover {
+    transform: translateX(0) translateY(-8px) translateZ(48px) rotateX(3deg);
+  }
+
+  .gacha-choice-card.is-left:hover {
+    transform: translateX(-92px) translateY(-6px) rotateY(10deg) rotateZ(-1deg) scale(.91);
+  }
+
+  .gacha-choice-card.is-right:hover {
+    transform: translateX(92px) translateY(-6px) rotateY(-10deg) rotateZ(1deg) scale(.91);
+  }
 }
 
 .gacha-choice-stage.is-selecting .gacha-choice-card {
