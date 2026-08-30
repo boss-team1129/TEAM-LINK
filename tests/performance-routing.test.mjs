@@ -82,4 +82,29 @@ test("予約カタログの短時間キャッシュは会員ごとに分離す�
   assert.match(catalogSource, /lastSyncedFor === String\(userKey \|\| ""\)/);
   assert.match(catalogSource, /TEAM_LINK_BOOKING_CATALOG_TTL_MS/);
   assert.match(catalogSource, /bookingCatalogSyncedFor/);
+  assert.match(catalogSource, /bookingCatalogCacheMeta/);
+  assert.match(catalogSource, /cacheShapeMatches/);
+  assert.match(catalogSource, /Number\(cacheMeta\.menuCount\) === storedMenus\.length/);
+  assert.match(catalogSource, /Number\(cacheMeta\.couponCount\) === storedCoupons\.length/);
+  assert.match(catalogSource, /Number\(cacheMeta\.memberCouponCount\) === storedMemberCoupons\.length/);
+});
+
+test("本番起動時に有効な予約カタログを空配列で上書きしない", () => {
+  const ensureSource = sourceBetween("function ensureDemoState()", "function getApiTimeoutMs");
+  assert.doesNotMatch(ensureSource, /isProductionApiMode\(\)\) \{\s*writeJson\(STORAGE_KEYS\.reservationMenus, \[\]\)/);
+  assert.doesNotMatch(ensureSource, /isProductionApiMode\(\)\) \{\s*writeJson\(STORAGE_KEYS\.adminCoupons, \[\]\)/);
+  assert.match(ensureSource, /!localStorage\.getItem\(STORAGE_KEYS\.reservationMenus\)/);
+  assert.match(ensureSource, /!localStorage\.getItem\(STORAGE_KEYS\.adminCoupons\)/);
+});
+
+test("予約画面はカタログ取得中を0件表示と区別し取得後に再描画する", () => {
+  const mySelectionSource = sourceBetween("function renderBookingMySelectionChoices", "function syncMySelectionCheckboxToBooking");
+  const syncSource = sourceBetween("async function syncProductionState()", "function scheduleProductionGachaStateSync");
+  assert.match(appSource, /通常メニューを取得しています…/);
+  assert.match(appSource, /クーポン情報を取得しています…/);
+  assert.match(mySelectionSource, /マイクーポンを読み込んでいます…/);
+  assert.match(syncSource, /await Promise\.allSettled\(\[customerBookingsPromise, catalogPromise\]\)/);
+  assert.match(syncSource, /renderBookingMenuChoices\(\)/);
+  assert.match(syncSource, /renderBookingCouponChoices\(\)/);
+  assert.match(syncSource, /renderBookingMySelectionChoices\(\)/);
 });
