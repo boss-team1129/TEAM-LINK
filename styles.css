@@ -5596,6 +5596,11 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, #b98a3d, #
   cursor: wait;
 }
 
+.admin-notification-error {
+  color: #f0a7a0;
+  overflow-wrap: anywhere;
+}
+
 .admin-booking-proposal {
   width: 100%;
   min-width: 0;
