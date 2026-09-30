@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20261001-emergency-data-recovery-1";
+const TEAM_LINK_FRONTEND_BUILD = "20261001-emergency-data-recovery-2";
 const TEAM_LINK_SERVICE_WORKER_URL = `./service-worker.js?v=${TEAM_LINK_FRONTEND_BUILD}`;
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
@@ -22,6 +22,7 @@ const TEAM_LINK_BOOKING_CATALOG_CACHE_SCHEMA = 1;
 const TEAM_LINK_GACHA_ROUTE_KEYS = new Set(["gacha", "mycards", "collectionRewards", "gachaHistory"]);
 let teamLinkGachaSyncPromise = null;
 let teamLinkBookingCatalogSyncPromise = null;
+let teamLinkCouponCatalogSyncPromise = null;
 const LEGACY_FIXED_PROFILE = Object.freeze({
   memberId: "TL-000001",
   lineUserId: "U-demo-1"
@@ -2879,8 +2880,13 @@ function showView(viewKey, options = {}) {
 
 function ensureProductionViewData(routeKey) {
   if (!isProductionApiMode()) return;
-  if (["reservation", "booking", "coupons"].includes(routeKey)) {
+  if (["reservation", "booking"].includes(routeKey)) {
     syncProductionBookingCatalog(getCurrentUserKey()).then(() => {
+      if (getCurrentRouteKey() === routeKey) renderCurrentView(routeKey);
+    });
+  }
+  if (routeKey === "coupons") {
+    syncProductionCouponCatalog(getCurrentUserKey()).then(() => {
       if (getCurrentRouteKey() === routeKey) renderCurrentView(routeKey);
     });
   }
@@ -3983,7 +3989,7 @@ function handleCouponSelectionAction(button) {
   if (action === "retryCatalog") {
     appState.couponMasterSyncStatus = "loading";
     renderCoupons();
-    syncProductionBookingCatalog(getCurrentUserKey(), { force: true }).then(renderCoupons);
+    syncProductionCouponCatalog(getCurrentUserKey(), { force: true }).then(renderCoupons);
   }
 }
 
@@ -11922,9 +11928,11 @@ async function syncProductionState() {
       })
       : Promise.resolve();
     const routeKey = getCurrentRouteKey();
-    const catalogPromise = ["reservation", "booking", "coupons"].includes(routeKey)
+    const catalogPromise = ["reservation", "booking"].includes(routeKey)
       ? syncProductionBookingCatalog(userKey)
-      : Promise.resolve(true);
+      : routeKey === "coupons"
+        ? syncProductionCouponCatalog(userKey)
+        : Promise.resolve(true);
     const prioritizeGacha = TEAM_LINK_GACHA_ROUTE_KEYS.has(getCurrentRouteKey());
     const gachaResultsPromise = prioritizeGacha ? ensureProductionGachaState() : null;
     await Promise.allSettled([customerBookingsPromise, catalogPromise]);
@@ -12016,6 +12024,45 @@ async function syncProductionGachaAuxiliaryData(routeKey, userKey) {
     }
   }
   if (TEAM_LINK_GACHA_ROUTE_KEYS.has(getCurrentRouteKey())) renderApp();
+}
+
+async function syncProductionCouponCatalog(userKey, options = {}) {
+  if (teamLinkCouponCatalogSyncPromise) return teamLinkCouponCatalogSyncPromise;
+  const lastSyncedAt = Number(localStorage.getItem(STORAGE_KEYS.bookingCatalogSyncedAt) || 0);
+  const lastSyncedFor = String(localStorage.getItem(STORAGE_KEYS.bookingCatalogSyncedFor) || "");
+  const hasCachedCoupons = readJson(STORAGE_KEYS.adminCoupons, []).length > 0;
+  const hasFreshCoupons = hasCachedCoupons
+    && lastSyncedFor === String(userKey || "")
+    && Date.now() - lastSyncedAt < TEAM_LINK_BOOKING_CATALOG_TTL_MS;
+  appState.couponMasterSyncStatus = hasFreshCoupons ? "synced" : "loading";
+  if (hasFreshCoupons && !options.force) return true;
+  teamLinkCouponCatalogSyncPromise = (async () => {
+    try {
+      const [couponResult, memberCouponResult] = await Promise.all([
+        apiRequest("listCouponMasters", {}),
+        apiRequest("listMemberCoupons", { memberId: userKey })
+      ]);
+      const coupons = couponResult.coupons || couponResult.data?.coupons;
+      const memberCoupons = memberCouponResult.coupons || memberCouponResult.data?.coupons;
+      if (!Array.isArray(coupons)) throw new Error("クーポンマスタの形式が正しくありません。");
+      if (!Array.isArray(memberCoupons)) throw new Error("会員クーポンの形式が正しくありません。");
+      writeJson(STORAGE_KEYS.adminCoupons, coupons.map(mapServerCouponMasterToLocal));
+      writeJson(STORAGE_KEYS.myCoupons, memberCoupons.map(mapServerMemberCouponToLocal));
+      localStorage.setItem(STORAGE_KEYS.bookingCatalogSyncedAt, String(Date.now()));
+      localStorage.setItem(STORAGE_KEYS.bookingCatalogSyncedFor, String(userKey || ""));
+      appState.couponMasterSyncStatus = "synced";
+      appState.memberCouponSyncStatus = "synced";
+      return true;
+    } catch (error) {
+      appState.couponMasterSyncStatus = "unavailable";
+      appState.memberCouponSyncStatus = "unavailable";
+      console.warn("[TEAM LINK COUPON CATALOG SYNC FAILED]", error);
+      return false;
+    } finally {
+      teamLinkCouponCatalogSyncPromise = null;
+    }
+  })();
+  return teamLinkCouponCatalogSyncPromise;
 }
 
 async function syncProductionBookingCatalog(userKey, options = {}) {

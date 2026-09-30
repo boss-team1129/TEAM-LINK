@@ -46,7 +46,8 @@ test("本番同期は必要な画面だけカタログとガチャ状態を取�
   assert.ok(bookings >= 0 && catalog > bookings && firstAwait > catalog);
   assert.match(syncSource, /TEAM_LINK_GACHA_ROUTE_KEYS\.has\(getCurrentRouteKey\(\)\)/);
   assert.match(syncSource, /prioritizeGacha \? ensureProductionGachaState\(\) : null/);
-  assert.match(syncSource, /\["reservation", "booking", "coupons"\]\.includes\(routeKey\)/);
+  assert.match(syncSource, /\["reservation", "booking"\]\.includes\(routeKey\)/);
+  assert.match(syncSource, /routeKey === "coupons"\s*\? syncProductionCouponCatalog\(userKey\)/);
   assert.doesNotMatch(syncSource, /scheduleProductionGachaStateSync/);
   assert.match(syncSource, /apiRequest\("checkMonthlyDrawStatus"/);
   assert.doesNotMatch(syncSource, /Promise\.allSettled\(\[\s*apiRequest\("getGachaConfig"/);
@@ -125,9 +126,14 @@ test("クーポンは画面表示時に取得し、失敗時に再試行でき�
   const navigationSource = sourceBetween("function showView", "window.addEventListener\(\"popstate\"");
   const couponSource = sourceBetween("function renderCoupons", "function normalizeLineCouponCategoryText");
   assert.match(navigationSource, /ensureProductionViewData\(routeKey\)/);
-  assert.match(navigationSource, /\["reservation", "booking", "coupons"\]\.includes\(routeKey\)/);
+  assert.match(navigationSource, /routeKey === "coupons"/);
+  assert.match(navigationSource, /syncProductionCouponCatalog\(getCurrentUserKey\(\)\)/);
   assert.match(couponSource, /data-coupon-action="retryCatalog"/);
-  assert.match(appSource, /syncProductionBookingCatalog\(getCurrentUserKey\(\), \{ force: true \}\)/);
+  assert.match(appSource, /syncProductionCouponCatalog\(getCurrentUserKey\(\), \{ force: true \}\)/);
+  const couponSyncSource = sourceBetween("async function syncProductionCouponCatalog", "async function syncProductionBookingCatalog");
+  assert.match(couponSyncSource, /apiRequest\("listCouponMasters"/);
+  assert.match(couponSyncSource, /apiRequest\("listMemberCoupons"/);
+  assert.doesNotMatch(couponSyncSource, /getBookingCatalog/);
 });
 
 test("占いAPIはApps Scriptの実測遅延を待てる", () => {
