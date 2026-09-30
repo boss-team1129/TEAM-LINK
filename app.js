@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20260929-booking-close-line-status-1";
+const TEAM_LINK_FRONTEND_BUILD = "20261001-emergency-data-recovery-1";
 const TEAM_LINK_SERVICE_WORKER_URL = `./service-worker.js?v=${TEAM_LINK_FRONTEND_BUILD}`;
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
@@ -21,6 +21,7 @@ const TEAM_LINK_BOOKING_CATALOG_TTL_MS = 5 * 60 * 1000;
 const TEAM_LINK_BOOKING_CATALOG_CACHE_SCHEMA = 1;
 const TEAM_LINK_GACHA_ROUTE_KEYS = new Set(["gacha", "mycards", "collectionRewards", "gachaHistory"]);
 let teamLinkGachaSyncPromise = null;
+let teamLinkBookingCatalogSyncPromise = null;
 const LEGACY_FIXED_PROFILE = Object.freeze({
   memberId: "TL-000001",
   lineUserId: "U-demo-1"
@@ -131,6 +132,11 @@ const appState = {
   menuMasterSyncStatus: "pending",
   couponMasterSyncStatus: "pending",
   memberCouponSyncStatus: "pending",
+  gachaDrawSyncStatus: "pending",
+  gachaDrawSyncUserKey: "",
+  gachaDrawSyncMonth: "",
+  gachaServerAlreadyDrawn: false,
+  gachaServerCanDraw: false,
   gachaCharacterEditId: "",
   gachaPreviewMode: "card",
   gachaTestRarity: "",
@@ -2541,6 +2547,10 @@ function renderHome() {
   if (gachaBadge) {
     gachaBadge.textContent = gachaStatus.used
       ? "今月は使用済み"
+      : gachaStatus.state === "確認中"
+        ? "利用状況を確認中"
+        : gachaStatus.state === "通信エラー"
+          ? "通信状況を確認してください"
       : gachaStatus.state === "利用可能"
         ? "今月まだ引けます"
         : "準備中";
@@ -2863,7 +2873,20 @@ function showView(viewKey, options = {}) {
   updateNav(routeKey);
   if (routeKey === "booking") restoreBookingDraft();
   renderCurrentView(routeKey);
+  ensureProductionViewData(routeKey);
   window.requestAnimationFrame(() => performanceTrace("view.visible", viewStartedAt, { view: routeKey }));
+}
+
+function ensureProductionViewData(routeKey) {
+  if (!isProductionApiMode()) return;
+  if (["reservation", "booking", "coupons"].includes(routeKey)) {
+    syncProductionBookingCatalog(getCurrentUserKey()).then(() => {
+      if (getCurrentRouteKey() === routeKey) renderCurrentView(routeKey);
+    });
+  }
+  if (TEAM_LINK_GACHA_ROUTE_KEYS.has(routeKey)) {
+    ensureProductionGachaState().catch((error) => console.warn("[TEAM LINK GACHA SYNC FAILED]", error));
+  }
 }
 
 window.addEventListener("popstate", () => {
@@ -3163,7 +3186,7 @@ async function fortuneApiRequest(action, payload = {}) {
   let response;
   let text = "";
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 15000);
+  const timeout = window.setTimeout(() => controller.abort(), 45000);
   try {
     response = await fetch(url.toString(), { method: "GET", redirect: "follow", cache: "no-store", signal: controller.signal });
     text = await response.text();
@@ -3839,7 +3862,9 @@ function renderCoupons() {
   const couponList = document.getElementById("couponList");
   if (selected === "クーポン") {
     if (isProductionApiMode() && appState.couponMasterSyncStatus !== "synced") {
-      couponList.innerHTML = `<p class="soft-note">${appState.couponMasterSyncStatus === "unavailable" ? "クーポン情報を取得できませんでした。" : "クーポン情報を取得しています…"}</p>`;
+      couponList.innerHTML = appState.couponMasterSyncStatus === "unavailable"
+        ? `<div class="soft-note"><p>クーポン情報を取得できませんでした。</p><button class="secondary-button" type="button" data-coupon-action="retryCatalog">もう一度読み込む</button></div>`
+        : `<p class="soft-note">クーポン情報を取得しています…</p>`;
       return;
     }
     const activeCategory = LINE_COUPON_CATEGORY_ORDER.includes(appState.lineCouponCategory) ? appState.lineCouponCategory : "すべて";
@@ -3955,6 +3980,11 @@ function handleCouponSelectionAction(button) {
   if (action === "add") addMySelection(type, itemId);
   if (action === "remove") removeMySelection(type, itemId);
   if (action === "book") startBookingFromMySelections();
+  if (action === "retryCatalog") {
+    appState.couponMasterSyncStatus = "loading";
+    renderCoupons();
+    syncProductionBookingCatalog(getCurrentUserKey(), { force: true }).then(renderCoupons);
+  }
 }
 
 function addMySelection(type, itemId) {
@@ -4084,14 +4114,31 @@ function renderGacha() {
   document.getElementById("gachaTicketBox").innerHTML = `
     <small>今月の利用状況</small>
     <strong>${status.state === "利用済み" ? "利用済み" : status.state === "利用可能" ? "残り1回" : status.state}</strong>
-    <p>${status.used ? `獲得カード：${escapeHtml(status.draw.cardName)} / ${escapeHtml(status.draw.prizeName)}` : `${escapeHtml(status.expiresLabel)}まで引けます。前月分は繰り越されません。`}</p>
+    <p>${status.used
+      ? status.draw
+        ? `獲得カード：${escapeHtml(status.draw.cardName)} / ${escapeHtml(status.draw.prizeName)}`
+        : "今月のガチャは利用済みです。"
+      : status.state === "確認中"
+        ? "今月の利用状況をサーバーへ確認しています。"
+        : status.state === "通信エラー"
+          ? "利用状況を確認できませんでした。抽選は行われていません。"
+          : `${escapeHtml(status.expiresLabel)}まで引けます。前月分は繰り越されません。`}</p>
   `;
   if (status.used) {
     button.disabled = true;
     button.textContent = "今月は利用済み";
     button.hidden = true;
     document.getElementById("gachaStage")?.classList.add("is-claimed");
-    if (choiceStage) choiceStage.innerHTML = renderGachaClaimedStage(status.draw);
+    if (choiceStage) choiceStage.innerHTML = status.draw
+      ? renderGachaClaimedStage(status.draw)
+      : `<p class="gacha-choice-message">今月のガチャは利用済みです。</p>`;
+  } else if (status.state === "確認中" || status.state === "通信エラー") {
+    button.disabled = true;
+    button.hidden = true;
+    document.getElementById("gachaStage")?.classList.remove("is-claimed");
+    if (choiceStage) choiceStage.innerHTML = status.state === "通信エラー"
+      ? `<div class="gacha-choice-message"><p>通信状況をご確認のうえ、もう一度お試しください。</p><button class="secondary-button" type="button" data-gacha-action="retrySync">再読み込み</button></div>`
+      : `<p class="gacha-choice-message">利用状況を確認しています…</p>`;
   } else if (setting.status !== "公開" || (!isProductionApiMode() && getGachaOddsTotal(setting) !== 100)) {
     button.disabled = true;
     button.textContent = "今月のガチャは準備中";
@@ -4210,6 +4257,10 @@ async function selectGachaCard(button) {
   if (latestStatus.used) {
     showToast("今月のカードは獲得済みです。");
     renderGacha();
+    return;
+  }
+  if (latestStatus.state !== "利用可能") {
+    showToast(latestStatus.state === "通信エラー" ? "利用状況を確認できないため、ガチャは実行できません。" : "利用状況を確認しています。");
     return;
   }
   appState.gachaChoiceInProgress = true;
@@ -4387,6 +4438,11 @@ function handleGachaAction(button) {
   const action = button.dataset.gachaAction;
   const id = button.dataset.id || "";
   if (action === "selectCard") return selectGachaCard(button);
+  if (action === "retrySync") {
+    appState.gachaDrawSyncStatus = "pending";
+    renderGacha();
+    return ensureProductionGachaState({ force: true }).catch((error) => console.warn("[TEAM LINK GACHA RETRY FAILED]", error));
+  }
   if (action === "selectBinderYear") {
     appState.gachaBinderYear = Number(button.dataset.year || currentYear());
     renderMyCards();
@@ -11355,13 +11411,23 @@ function getMonthlyGachaStatus() {
     )
   ));
   const setting = getGachaSetting(month);
-  const state = draw ? "利用済み" : setting?.status === "公開" ? "利用可能" : "未付与";
+  const serverStatusRequired = isProductionApiMode()
+    && (appState.gachaDrawSyncUserKey !== String(userKey)
+      || appState.gachaDrawSyncMonth !== month
+      || appState.gachaDrawSyncStatus !== "ready");
+  const serverAlreadyDrawn = !serverStatusRequired && appState.gachaServerAlreadyDrawn;
+  const serverCanDraw = !serverStatusRequired && appState.gachaServerCanDraw;
+  const state = draw || serverAlreadyDrawn
+    ? "利用済み"
+    : serverStatusRequired
+      ? appState.gachaDrawSyncStatus === "error" ? "通信エラー" : "確認中"
+      : serverCanDraw && setting?.status === "公開" ? "利用可能" : "未付与";
   return {
     month,
     monthLabel: formatMonthLabel(month),
     expiresLabel: endOfMonthLabel(),
     state,
-    used: Boolean(draw),
+    used: Boolean(draw || serverAlreadyDrawn),
     draw: draw || null
   };
 }
@@ -11855,7 +11921,10 @@ async function syncProductionState() {
         console.warn("[TEAM LINK CUSTOMER BOOKING SYNC FAILED]", error);
       })
       : Promise.resolve();
-    const catalogPromise = syncProductionBookingCatalog(userKey);
+    const routeKey = getCurrentRouteKey();
+    const catalogPromise = ["reservation", "booking", "coupons"].includes(routeKey)
+      ? syncProductionBookingCatalog(userKey)
+      : Promise.resolve(true);
     const prioritizeGacha = TEAM_LINK_GACHA_ROUTE_KEYS.has(getCurrentRouteKey());
     const gachaResultsPromise = prioritizeGacha ? ensureProductionGachaState() : null;
     await Promise.allSettled([customerBookingsPromise, catalogPromise]);
@@ -11865,7 +11934,6 @@ async function syncProductionState() {
     updateBookingConfirm();
     renderApp();
     if (gachaResultsPromise) await gachaResultsPromise;
-    else scheduleProductionGachaStateSync();
     if (appState.currentView === "adminView" && getAdminSession()) await syncProductionAdminState({ render: false });
     renderApp();
     performanceTrace("production.sync", syncStartedAt, { status: "success", gachaPriority: prioritizeGacha });
@@ -11875,56 +11943,83 @@ async function syncProductionState() {
   }
 }
 
-function scheduleProductionGachaStateSync() {
-  if (getCurrentRouteKey() !== "home") return;
-  window.setTimeout(() => {
-    if (getCurrentRouteKey() !== "home") return;
-    ensureProductionGachaState().catch((error) => console.warn("[TEAM LINK GACHA SYNC FAILED]", error));
-  }, 3000);
-}
-
-async function ensureProductionGachaState() {
-  if (teamLinkGachaSyncPromise) return teamLinkGachaSyncPromise;
+async function ensureProductionGachaState(options = {}) {
   const profile = getProfile();
   const userKey = getCurrentUserKey();
+  const month = currentMonthKey();
+  if (!options.force
+    && appState.gachaDrawSyncStatus === "ready"
+    && appState.gachaDrawSyncUserKey === String(userKey)
+    && appState.gachaDrawSyncMonth === month) return true;
+  if (teamLinkGachaSyncPromise) return teamLinkGachaSyncPromise;
+  appState.gachaDrawSyncStatus = "loading";
+  appState.gachaDrawSyncUserKey = String(userKey);
+  appState.gachaDrawSyncMonth = month;
+  if (getCurrentRouteKey() === "gacha") renderGacha();
   teamLinkGachaSyncPromise = (async () => {
-    const results = await Promise.allSettled([
-      apiRequest("getGachaConfig", {}),
-      apiRequest("getPublishedRewards", {}),
-      apiRequest("getUserCoupons", { userId: userKey }),
-      apiRequest("checkMonthlyDrawStatus", { userId: userKey, memberId: userKey, lineUserId: profile.lineUserId || "", targetYearMonth: currentMonthKey() }),
-      apiRequest("getUserBinder", { userId: userKey, year: String(currentYear()) }),
-      apiRequest("getPastBinderHistory", { userId: userKey, currentYear: String(currentYear()) }),
-      apiRequest("getCollectionRewards", { userId: userKey, targetYear: String(currentYear()) })
-    ]);
-    const [gachaConfig, gachaRewards, gachaCoupons, drawStatus, binder, pastBinders, collectionRewards] = results.map((result, index) => {
-      if (result.status === "fulfilled") return result.value;
-      console.warn("[TEAM LINK API PARTIAL SYNC FAILED]", { index, reason: result.reason });
-      return {};
+    const drawStatus = await apiRequest("checkMonthlyDrawStatus", {
+      userId: userKey,
+      memberId: userKey,
+      lineUserId: profile.lineUserId || "",
+      targetYearMonth: month
     });
-    if (gachaRewards.data?.rewards) mergeServerGachaRewards(gachaRewards.data.rewards);
-    if (gachaCoupons.data?.coupons) replaceServerGachaCoupons(gachaCoupons.data.coupons, userKey);
+    if (typeof drawStatus.data?.alreadyDrawn !== "boolean" || typeof drawStatus.data?.canDraw !== "boolean") {
+      throw new Error("ガチャ利用状況の形式が正しくありません。");
+    }
+    appState.gachaServerAlreadyDrawn = drawStatus.data.alreadyDrawn;
+    appState.gachaServerCanDraw = drawStatus.data.canDraw;
     if (drawStatus.data?.canDraw === true && drawStatus.data?.alreadyDrawn === false) {
-      removeLocalGachaDrawForUserMonth(userKey, drawStatus.data.targetYearMonth || currentMonthKey());
+      removeLocalGachaDrawForUserMonth(userKey, drawStatus.data.targetYearMonth || month);
     } else if (drawStatus.data?.draw) {
       upsertLocalGachaDraw(mapServerGachaDrawToLocal(drawStatus.data.draw, drawStatus.data.coupon || {}));
     }
-    if (binder.data?.cards) mergeServerBinderCards(binder.data.cards);
-    if (pastBinders.data?.years) Object.values(pastBinders.data.years).forEach(mergeServerBinderCards);
-    if (collectionRewards.data?.rewards) mergeServerCollectionRewards(collectionRewards.data.rewards);
-    if (gachaConfig.data?.config?.currentYearMonth) {
-      const settings = getGachaSettings();
-      if (!settings.some((setting) => setting.issueMonth === gachaConfig.data.config.currentYearMonth)) {
-        writeGachaSettings([{ issueMonth: gachaConfig.data.config.currentYearMonth, title: "本番ガチャ", status: "公開" }, ...settings]);
-      }
-    }
+    appState.gachaDrawSyncStatus = "ready";
     if (TEAM_LINK_GACHA_ROUTE_KEYS.has(getCurrentRouteKey())) renderApp();
-    return results;
-  })();
+    if (getCurrentRouteKey() !== "gacha") {
+      syncProductionGachaAuxiliaryData(getCurrentRouteKey(), userKey).catch((error) => {
+        console.warn("[TEAM LINK GACHA AUXILIARY SYNC FAILED]", error);
+      });
+    }
+    return true;
+  })().catch((error) => {
+    appState.gachaDrawSyncStatus = "error";
+    if (TEAM_LINK_GACHA_ROUTE_KEYS.has(getCurrentRouteKey())) renderApp();
+    throw error;
+  }).finally(() => {
+    teamLinkGachaSyncPromise = null;
+  });
   return teamLinkGachaSyncPromise;
 }
 
-async function syncProductionBookingCatalog(userKey) {
+async function syncProductionGachaAuxiliaryData(routeKey, userKey) {
+  const requests = routeKey === "gacha"
+    ? [["getGachaConfig", {}], ["getPublishedRewards", {}], ["getUserCoupons", { userId: userKey }]]
+    : routeKey === "collectionRewards"
+      ? [["getUserBinder", { userId: userKey, year: String(currentYear()) }], ["getCollectionRewards", { userId: userKey, targetYear: String(currentYear()) }]]
+      : [["getUserBinder", { userId: userKey, year: String(currentYear()) }], ["getPastBinderHistory", { userId: userKey, currentYear: String(currentYear()) }]];
+  for (const [action, payload] of requests) {
+    try {
+      const result = await apiRequest(action, payload);
+      if (action === "getGachaConfig" && result.data?.config?.currentYearMonth) {
+        const settings = getGachaSettings();
+        if (!settings.some((setting) => setting.issueMonth === result.data.config.currentYearMonth)) {
+          writeGachaSettings([{ issueMonth: result.data.config.currentYearMonth, title: "本番ガチャ", status: "公開" }, ...settings]);
+        }
+      }
+      if (action === "getPublishedRewards" && result.data?.rewards) mergeServerGachaRewards(result.data.rewards);
+      if (action === "getUserCoupons" && result.data?.coupons) replaceServerGachaCoupons(result.data.coupons, userKey);
+      if (action === "getUserBinder" && result.data?.cards) mergeServerBinderCards(result.data.cards);
+      if (action === "getPastBinderHistory" && result.data?.years) Object.values(result.data.years).forEach(mergeServerBinderCards);
+      if (action === "getCollectionRewards" && result.data?.rewards) mergeServerCollectionRewards(result.data.rewards);
+    } catch (error) {
+      console.warn("[TEAM LINK API OPTIONAL SYNC FAILED]", { action, error });
+    }
+  }
+  if (TEAM_LINK_GACHA_ROUTE_KEYS.has(getCurrentRouteKey())) renderApp();
+}
+
+async function syncProductionBookingCatalog(userKey, options = {}) {
+  if (teamLinkBookingCatalogSyncPromise) return teamLinkBookingCatalogSyncPromise;
   const lastSyncedAt = Number(localStorage.getItem(STORAGE_KEYS.bookingCatalogSyncedAt) || 0);
   const lastSyncedFor = String(localStorage.getItem(STORAGE_KEYS.bookingCatalogSyncedFor) || "");
   const cacheMeta = readJson(STORAGE_KEYS.bookingCatalogCacheMeta, {});
@@ -11947,46 +12042,51 @@ async function syncProductionBookingCatalog(userKey) {
   appState.menuMasterSyncStatus = hasFreshCatalog ? "synced" : "loading";
   appState.couponMasterSyncStatus = hasFreshCatalog ? "synced" : "loading";
   appState.memberCouponSyncStatus = hasFreshCatalog ? "synced" : "loading";
-  if (hasFreshCatalog) {
+  if (hasFreshCatalog && !options.force) {
     performanceTraceEvent("booking-catalog.cache-hit", { ageMs: Date.now() - lastSyncedAt });
     return true;
   }
-  try {
-    const catalogResult = await apiRequest("getBookingCatalog", { memberId: userKey });
-    const coupons = catalogResult.coupons || catalogResult.data?.coupons;
-    const serverMenus = catalogResult.menus || catalogResult.data?.menus;
-    const memberCoupons = catalogResult.memberCoupons || catalogResult.data?.memberCoupons;
-    if (!Array.isArray(coupons)) throw new Error("クーポンマスタの形式が正しくありません。");
-    if (!Array.isArray(serverMenus)) throw new Error("MenuMasterの形式が正しくありません。");
-    if (!Array.isArray(memberCoupons)) throw new Error("会員クーポンの形式が正しくありません。");
-    const mappedCoupons = coupons.map(mapServerCouponMasterToLocal);
-    const mappedMenus = serverMenus.map(mapServerMenuMasterToLocal);
-    const mappedMemberCoupons = memberCoupons.map(mapServerMemberCouponToLocal);
-    const syncedAt = Date.now();
-    writeJson(STORAGE_KEYS.adminCoupons, mappedCoupons);
-    writeJson(STORAGE_KEYS.reservationMenus, mappedMenus);
-    writeJson(STORAGE_KEYS.myCoupons, mappedMemberCoupons);
-    localStorage.setItem(STORAGE_KEYS.bookingCatalogSyncedAt, String(syncedAt));
-    localStorage.setItem(STORAGE_KEYS.bookingCatalogSyncedFor, String(userKey || ""));
-    writeJson(STORAGE_KEYS.bookingCatalogCacheMeta, {
-      schema: TEAM_LINK_BOOKING_CATALOG_CACHE_SCHEMA,
-      userKey: String(userKey || ""),
-      syncedAt,
-      menuCount: mappedMenus.length,
-      couponCount: mappedCoupons.length,
-      memberCouponCount: mappedMemberCoupons.length
-    });
-    appState.couponMasterSyncStatus = "synced";
-    appState.menuMasterSyncStatus = "synced";
-    appState.memberCouponSyncStatus = "synced";
-    return true;
-  } catch (error) {
-    appState.couponMasterSyncStatus = "unavailable";
-    appState.menuMasterSyncStatus = "unavailable";
-    appState.memberCouponSyncStatus = "unavailable";
-    console.warn("[TEAM LINK BOOKING CATALOG SYNC FAILED]", error);
-    return false;
-  }
+  teamLinkBookingCatalogSyncPromise = (async () => {
+    try {
+      const catalogResult = await apiRequest("getBookingCatalog", { memberId: userKey });
+      const coupons = catalogResult.coupons || catalogResult.data?.coupons;
+      const serverMenus = catalogResult.menus || catalogResult.data?.menus;
+      const memberCoupons = catalogResult.memberCoupons || catalogResult.data?.memberCoupons;
+      if (!Array.isArray(coupons)) throw new Error("クーポンマスタの形式が正しくありません。");
+      if (!Array.isArray(serverMenus)) throw new Error("MenuMasterの形式が正しくありません。");
+      if (!Array.isArray(memberCoupons)) throw new Error("会員クーポンの形式が正しくありません。");
+      const mappedCoupons = coupons.map(mapServerCouponMasterToLocal);
+      const mappedMenus = serverMenus.map(mapServerMenuMasterToLocal);
+      const mappedMemberCoupons = memberCoupons.map(mapServerMemberCouponToLocal);
+      const syncedAt = Date.now();
+      writeJson(STORAGE_KEYS.adminCoupons, mappedCoupons);
+      writeJson(STORAGE_KEYS.reservationMenus, mappedMenus);
+      writeJson(STORAGE_KEYS.myCoupons, mappedMemberCoupons);
+      localStorage.setItem(STORAGE_KEYS.bookingCatalogSyncedAt, String(syncedAt));
+      localStorage.setItem(STORAGE_KEYS.bookingCatalogSyncedFor, String(userKey || ""));
+      writeJson(STORAGE_KEYS.bookingCatalogCacheMeta, {
+        schema: TEAM_LINK_BOOKING_CATALOG_CACHE_SCHEMA,
+        userKey: String(userKey || ""),
+        syncedAt,
+        menuCount: mappedMenus.length,
+        couponCount: mappedCoupons.length,
+        memberCouponCount: mappedMemberCoupons.length
+      });
+      appState.couponMasterSyncStatus = "synced";
+      appState.menuMasterSyncStatus = "synced";
+      appState.memberCouponSyncStatus = "synced";
+      return true;
+    } catch (error) {
+      appState.couponMasterSyncStatus = "unavailable";
+      appState.menuMasterSyncStatus = "unavailable";
+      appState.memberCouponSyncStatus = "unavailable";
+      console.warn("[TEAM LINK BOOKING CATALOG SYNC FAILED]", error);
+      return false;
+    } finally {
+      teamLinkBookingCatalogSyncPromise = null;
+    }
+  })();
+  return teamLinkBookingCatalogSyncPromise;
 }
 
 async function syncProductionCustomerBookings(profile = getProfile(), options = {}) {

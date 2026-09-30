@@ -38,7 +38,7 @@ test("初期表示は指定ルートだけを描画する", () => {
   });
 });
 
-test("本番同期は予約・カタログを並列化しガチャは画面に応じて先読みする", () => {
+test("本番同期は必要な画面だけカタログとガチャ状態を取得する", () => {
   const syncSource = sourceBetween("async function syncProductionState()", "async function syncProductionBookingCatalog");
   const bookings = syncSource.indexOf("customerBookingsPromise");
   const catalog = syncSource.indexOf("catalogPromise");
@@ -46,8 +46,10 @@ test("本番同期は予約・カタログを並列化しガチャは画面に�
   assert.ok(bookings >= 0 && catalog > bookings && firstAwait > catalog);
   assert.match(syncSource, /TEAM_LINK_GACHA_ROUTE_KEYS\.has\(getCurrentRouteKey\(\)\)/);
   assert.match(syncSource, /prioritizeGacha \? ensureProductionGachaState\(\) : null/);
-  assert.match(syncSource, /else scheduleProductionGachaStateSync\(\)/);
-  assert.match(syncSource, /getCurrentRouteKey\(\) !== "home"\) return/);
+  assert.match(syncSource, /\["reservation", "booking", "coupons"\]\.includes\(routeKey\)/);
+  assert.doesNotMatch(syncSource, /scheduleProductionGachaStateSync/);
+  assert.match(syncSource, /apiRequest\("checkMonthlyDrawStatus"/);
+  assert.doesNotMatch(syncSource, /Promise\.allSettled\(\[\s*apiRequest\("getGachaConfig"/);
 });
 
 test("同一の読取APIは進行中リクエストを再利用する", () => {
@@ -99,7 +101,7 @@ test("本番起動時に有効な予約カタログを空配列で上書きし�
 
 test("予約画面はカタログ取得中を0件表示と区別し取得後に再描画する", () => {
   const mySelectionSource = sourceBetween("function renderBookingMySelectionChoices", "function syncMySelectionCheckboxToBooking");
-  const syncSource = sourceBetween("async function syncProductionState()", "function scheduleProductionGachaStateSync");
+  const syncSource = sourceBetween("async function syncProductionState()", "async function ensureProductionGachaState");
   assert.match(appSource, /通常メニューを取得しています…/);
   assert.match(appSource, /クーポン情報を取得しています…/);
   assert.match(mySelectionSource, /マイクーポンを読み込んでいます…/);
@@ -107,4 +109,28 @@ test("予約画面はカタログ取得中を0件表示と区別し取得後に�
   assert.match(syncSource, /renderBookingMenuChoices\(\)/);
   assert.match(syncSource, /renderBookingCouponChoices\(\)/);
   assert.match(syncSource, /renderBookingMySelectionChoices\(\)/);
+});
+
+test("ガチャは利用状況の確認前と通信失敗時に抽選を許可しない", () => {
+  const statusSource = sourceBetween("function getMonthlyGachaStatus", "function getGachaSettings");
+  const renderSource = sourceBetween("function renderGacha()", "function renderGachaCardChoices");
+  const selectSource = sourceBetween("async function selectGachaCard", "function waitForGachaInteractionPaint");
+  assert.match(statusSource, /gachaDrawSyncStatus !== "ready"/);
+  assert.match(statusSource, /"通信エラー" : "確認中"/);
+  assert.match(renderSource, /status\.state === "確認中" \|\| status\.state === "通信エラー"/);
+  assert.match(selectSource, /latestStatus\.state !== "利用可能"/);
+});
+
+test("クーポンは画面表示時に取得し、失敗時に再試行できる", () => {
+  const navigationSource = sourceBetween("function showView", "window.addEventListener\(\"popstate\"");
+  const couponSource = sourceBetween("function renderCoupons", "function normalizeLineCouponCategoryText");
+  assert.match(navigationSource, /ensureProductionViewData\(routeKey\)/);
+  assert.match(navigationSource, /\["reservation", "booking", "coupons"\]\.includes\(routeKey\)/);
+  assert.match(couponSource, /data-coupon-action="retryCatalog"/);
+  assert.match(appSource, /syncProductionBookingCatalog\(getCurrentUserKey\(\), \{ force: true \}\)/);
+});
+
+test("占いAPIはApps Scriptの実測遅延を待てる", () => {
+  const fortuneSource = sourceBetween("async function fortuneApiRequest", "function renderTeamFortuneResult");
+  assert.match(fortuneSource, /setTimeout\(\(\) => controller\.abort\(\), 45000\)/);
 });
