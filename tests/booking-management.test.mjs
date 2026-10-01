@@ -22,6 +22,11 @@ test("未確定予約だけに対応終了を表示し、終了済みは通常�
   assert.match(cardSource, /data-admin-action="closeBookingHandling"/);
 });
 
+test("対応終了モーダルもiPhone Safariの固定配置対策を有効にする", () => {
+  const renderSource = sourceBetween("function renderAdmin()", "function renderAdminTabs");
+  assert.match(renderSource, /adminBookingResponseRequestId \|\| appState\.adminBookingCloseRequestId/);
+});
+
 test("対応終了はアプリ内確認後に正式な対応完了を保存し、LINE通知文言を使わない", async () => {
   const closeSource = sourceBetween("function closeBookingHandling", "function buildDefaultBookingProposalMessage");
   let statusCall = null;
