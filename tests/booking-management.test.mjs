@@ -22,18 +22,23 @@ test("未確定予約だけに対応終了を表示し、終了済みは通常�
   assert.match(cardSource, /data-admin-action="closeBookingHandling"/);
 });
 
-test("対応終了は確認後にdoneを保存し、LINE通知文言を使わない", async () => {
-  const closeSource = sourceBetween("async function closeBookingHandling", "function buildDefaultBookingProposalMessage");
+test("対応終了はアプリ内確認後に正式な対応完了を保存し、LINE通知文言を使わない", async () => {
+  const closeSource = sourceBetween("function closeBookingHandling", "function buildDefaultBookingProposalMessage");
   let statusCall = null;
   const context = {
-    window: { confirm: () => true },
+    appState: { adminBookingActionBusyId: "", adminBookingCloseRequestId: "" },
+    renderApp: () => {},
+    window: { requestAnimationFrame: (callback) => callback() },
+    document: { querySelector: () => ({ focus: () => {} }) },
     runBookingStatusAction: async (...args) => { statusCall = args; return true; }
   };
-  vm.runInNewContext(`${closeSource}\nthis.closeBookingHandling = closeBookingHandling;`, context);
+  vm.runInNewContext(`${closeSource}\nthis.closeBookingHandling = closeBookingHandling;this.submitCloseBookingHandling = submitCloseBookingHandling;`, context);
   const button = {};
-  assert.equal(await context.closeBookingHandling(button, "BR-1"), true);
+  assert.equal(context.closeBookingHandling(button, "BR-1"), true);
+  assert.equal(context.appState.adminBookingCloseRequestId, "BR-1");
+  assert.equal(await context.submitCloseBookingHandling(button, "BR-1"), true);
   assert.equal(statusCall[1], "BR-1");
-  assert.equal(statusCall[2], "done");
+  assert.equal(statusCall[2], "対応完了");
   assert.doesNotMatch(closeSource, /LINE/);
 });
 
@@ -50,15 +55,24 @@ test("確定済みのLINE通知失敗を管理画面で明示する", () => {
 test("予約確定APIの応答喪失時はサーバー保存済み状態を再照合する", () => {
   const updateSource = sourceBetween("async function updateBookingStatus", "async function recoverBookingUpdateAfterApiFailure");
   const recoverySource = sourceBetween("async function recoverBookingUpdateAfterApiFailure", "function openBookingResponseModal");
-  assert.match(updateSource, /recoverBookingUpdateAfterApiFailure\(requestId, status, error\)/);
+  assert.match(updateSource, /recoverBookingUpdateAfterApiFailure\(requestId, persistedStatus, error\)/);
   assert.match(recoverySource, /apiRequest\("listBookingRequests", \{\}\)/);
   assert.match(recoverySource, /normalizeBookingStatus\(serverBooking\.status \|\| serverBooking\.currentStatus\)/);
   assert.match(recoverySource, /lineNotificationError/);
 });
 
-test("対応終了はキャンセル日時を新規設定せず、予約中クーポンを解放する", () => {
+test("対応終了は予約状態の保存後に予約中クーポンを解放する", () => {
   const updateSource = sourceBetween("async function updateBookingStatus", "async function recoverBookingUpdateAfterApiFailure");
   assert.match(updateSource, /\["キャンセル", "対応完了"\]\.includes\(normalizedTargetStatus\)/);
   assert.match(updateSource, /releaseBookingPlannedCouponsRemote/);
+  assert.ok(updateSource.indexOf('apiRequest("updateBookingRequest"') < updateSource.indexOf("releaseBookingPlannedCouponsRemote"));
   assert.match(updateSource, /if \(normalizedTargetStatus === "キャンセル"\) \{\s*booking\.cancelledAt/s);
+});
+
+test("LINE通知結果はHTTP応答と試行情報まで保持する", () => {
+  const applySource = sourceBetween("function applyBookingLineNotification", "function getBookingLineNotificationLabel");
+  assert.match(applySource, /lineNotificationHttpStatus/);
+  assert.match(applySource, /lineNotificationAttemptedAt/);
+  assert.match(applySource, /lineNotificationAttempts/);
+  assert.match(applySource, /lineNotificationRetryKey/);
 });

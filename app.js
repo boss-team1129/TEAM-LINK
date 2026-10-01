@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20261001-emergency-data-recovery-2";
+const TEAM_LINK_FRONTEND_BUILD = "20261001-booking-reliability-1";
 const TEAM_LINK_SERVICE_WORKER_URL = `./service-worker.js?v=${TEAM_LINK_FRONTEND_BUILD}`;
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
@@ -112,6 +112,7 @@ const appState = {
   adminBookingActionBusyId: "",
   adminBookingResponseRequestId: "",
   adminBookingResponseMode: "",
+  adminBookingCloseRequestId: "",
   adminFocusedBookingRequestId: "",
   adminBookingShowClosed: false,
   lineNotificationSettings: null,
@@ -6508,6 +6509,7 @@ function renderAdminBookings() {
       ${sorted.map((booking) => bookingCard(booking)).join("") || emptyAdminState(appState.adminBookingShowClosed ? "終了済みの予約対応はありません" : "予約希望はありません")}
     </div>
     ${renderAdminBookingResponseModal(sorted)}
+    ${renderAdminBookingCloseModal(sorted)}
   `;
 }
 
@@ -6678,6 +6680,37 @@ function renderAdminBookingResponseModal(bookings) {
         <div class="admin-booking-response-actions">
           <button type="button" data-admin-action="submitBookingResponse" data-id="${escapeHtml(requestId)}" data-mode="${escapeHtml(mode)}">${isConfirm ? (hasProposal ? "この日時で予約を確定してLINE通知" : "予約を確定してLINE通知") : (hasProposal ? "この日時をお客様へ再送する" : "この日時をお客様へ送る")}</button>
           <button type="button" class="secondary-button" data-admin-action="closeBookingResponseModal">戻る</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderAdminBookingCloseModal(bookings) {
+  const requestId = String(appState.adminBookingCloseRequestId || "");
+  if (!requestId) return "";
+  const booking = bookings.find((item) => String(item.bookingRequestId || item.requestId || "") === requestId);
+  if (!booking) return "";
+  return `
+    <div class="admin-booking-response-backdrop" role="presentation">
+      <section class="admin-booking-response-modal" role="dialog" aria-modal="true" aria-labelledby="adminBookingCloseTitle">
+        <header>
+          <p class="kicker">Close request</p>
+          <h3 id="adminBookingCloseTitle">予約対応を終了</h3>
+        </header>
+        <div class="summary-list">${summaryRows([
+          ["お客様名", booking.customerName || "お客様"],
+          ["現在の状態", normalizeBookingStatus(booking.status || booking.currentStatus)],
+          ["希望日時", formatDateTime(booking.firstDateTime) || "未入力"]
+        ])}</div>
+        <div class="admin-booking-cancellation-question">
+          <strong>この予約対応を終了しますか？</strong>
+          <p>通常の予約管理一覧から外れます。データは削除せず、終了済み一覧に保存します。</p>
+        </div>
+        <p class="soft-note">この操作ではお客様へLINE通知を送りません。</p>
+        <div class="admin-booking-response-actions">
+          <button type="button" class="danger-button" data-admin-action="submitCloseBookingHandling" data-id="${escapeHtml(requestId)}">対応終了</button>
+          <button type="button" class="secondary-button" data-admin-action="cancelCloseBookingHandling">戻る</button>
         </div>
       </section>
     </div>
@@ -7896,6 +7929,8 @@ function handleAdminAction(button) {
     return;
   }
   if (action === "closeBookingHandling") return closeBookingHandling(button, id);
+  if (action === "submitCloseBookingHandling") return submitCloseBookingHandling(button, id);
+  if (action === "cancelCloseBookingHandling") return cancelCloseBookingHandling();
   if (action === "editBooking") return editBooking(id);
   if (action === "bookingWaiting") return updateBookingStatus(id, "お客様返答待ち");
   if (action === "bookingSalonBoard") return updateBookingStatus(id, "サロンボード入力済み");
@@ -9283,8 +9318,10 @@ async function updateBookingStatus(requestId, status, options = {}) {
     cancelledBy: booking.cancelledBy,
     bookingConsultations: booking.bookingConsultations
   };
-  booking.status = status;
-  booking.currentStatus = status;
+  const normalizedTargetStatus = normalizeBookingStatus(status);
+  const persistedStatus = normalizedTargetStatus === "対応完了" ? "対応完了" : status;
+  booking.status = persistedStatus;
+  booking.currentStatus = persistedStatus;
   booking.updatedAt = new Date().toISOString();
   if (options.adminReply !== undefined) booking.adminReply = String(options.adminReply || "").trim();
   if (options.staffMessage !== undefined) booking.staffMessage = String(options.staffMessage || "").trim();
@@ -9296,22 +9333,10 @@ async function updateBookingStatus(requestId, status, options = {}) {
   if (options.cancelledAt !== undefined) booking.cancelledAt = options.cancelledAt;
   if (options.cancelledBy !== undefined) booking.cancelledBy = options.cancelledBy;
   if (status === "来店済み") booking.visitedAt = new Date().toISOString();
-  const normalizedTargetStatus = normalizeBookingStatus(status);
   if (["キャンセル", "対応完了"].includes(normalizedTargetStatus)) {
     if (normalizedTargetStatus === "キャンセル") {
       booking.cancelledAt = booking.cancelledAt || new Date().toISOString();
       booking.cancelledBy = booking.cancelledBy || getAdminSession()?.name || "スタッフ";
-    }
-    if (isProductionApiMode()) {
-      try {
-        showToast("保存しています…");
-        await releaseBookingPlannedCouponsRemote(booking.reservationId || booking.requestId);
-      } catch (error) {
-        showToast("通信に失敗しました。時間をおいてもう一度お試しください");
-        return;
-      }
-    } else {
-      releaseBookingPlannedCoupons(booking.reservationId || booking.requestId);
     }
   }
   writeJson(STORAGE_KEYS.bookings, bookings);
@@ -9320,8 +9345,8 @@ async function updateBookingStatus(requestId, status, options = {}) {
     try {
       const result = await apiRequest("updateBookingRequest", {
         requestId,
-        status,
-        currentStatus: status,
+        status: persistedStatus,
+        currentStatus: persistedStatus,
         proposedDateTime: booking.proposedDateTime || "",
         proposedAt: booking.proposedAt || "",
         confirmedDateTime: booking.confirmedDateTime || "",
@@ -9358,7 +9383,7 @@ async function updateBookingStatus(requestId, status, options = {}) {
       applyBookingLineNotification(booking, notification);
       writeJson(STORAGE_KEYS.bookings, bookings);
     } catch (error) {
-      const recovered = await recoverBookingUpdateAfterApiFailure(requestId, status, error);
+      const recovered = await recoverBookingUpdateAfterApiFailure(requestId, persistedStatus, error);
       if (recovered) {
         Object.assign(booking, recovered.booking);
         notification = recovered.notification;
@@ -9372,15 +9397,28 @@ async function updateBookingStatus(requestId, status, options = {}) {
       }
     }
   }
-  addAdminLog("booking", `${booking.customerName || "お客様"} の予約を${status}に変更`, getAdminSession()?.name);
+  if (["キャンセル", "対応完了"].includes(normalizedTargetStatus)) {
+    const reservationId = booking.reservationId || booking.requestId;
+    if (isProductionApiMode()) {
+      try {
+        await releaseBookingPlannedCouponsRemote(reservationId);
+      } catch (error) {
+        console.error("[TEAM LINK BOOKING RESOURCE RELEASE FAILED]", { requestId, reservationId, error });
+        showToast("予約状態は保存しました。予約中クーポンの解放状況をご確認ください。");
+      }
+    } else {
+      releaseBookingPlannedCoupons(reservationId);
+    }
+  }
+  addAdminLog("booking", `${booking.customerName || "お客様"} の予約を${persistedStatus}に変更`, getAdminSession()?.name);
   renderApp();
-  if (normalizeBookingStatus(status) === "別日時提案中") {
+  if (normalizedTargetStatus === "別日時提案中") {
     showBookingLineNotificationToast("別日時を提案しました", notification);
-  } else if (normalizeBookingStatus(status) === "予約確定") {
+  } else if (normalizedTargetStatus === "予約確定") {
     showBookingLineNotificationToast("予約確定しました", notification);
-  } else if (normalizeBookingStatus(status) === "キャンセル") {
+  } else if (normalizedTargetStatus === "キャンセル") {
     showBookingLineNotificationToast("予約をキャンセルしました", notification);
-  } else if (normalizeBookingStatus(status) === "対応完了") {
+  } else if (normalizedTargetStatus === "対応完了") {
     showToast("予約対応を終了しました。");
   }
   return true;
@@ -9400,7 +9438,11 @@ async function recoverBookingUpdateAfterApiFailure(requestId, expectedStatus, or
         type: serverBooking.lineNotificationType || "",
         status: savedLineStatus || "failed",
         sentAt: serverBooking.lineNotificationSentAt || "",
-        error: serverBooking.lineNotificationError || String(originalError?.message || originalError || "通知結果を取得できませんでした")
+        error: serverBooking.lineNotificationError || String(originalError?.message || originalError || "通知結果を取得できませんでした"),
+        httpStatus: serverBooking.lineNotificationHttpStatus || "",
+        attemptedAt: serverBooking.lineNotificationAttemptedAt || "",
+        attempts: serverBooking.lineNotificationAttempts || "",
+        retryKey: serverBooking.lineNotificationRetryKey || ""
       }
     };
   } catch (recoveryError) {
@@ -9509,9 +9551,30 @@ async function submitBookingCancellation(button, requestId) {
   return updated;
 }
 
-async function closeBookingHandling(button, requestId) {
-  if (!window.confirm("この予約対応を終了しますか？")) return false;
-  return runBookingStatusAction(button, requestId, "done");
+function closeBookingHandling(button, requestId) {
+  if (!requestId || appState.adminBookingActionBusyId) return false;
+  appState.adminBookingCloseRequestId = requestId;
+  renderApp();
+  window.requestAnimationFrame(() => {
+    document.querySelector("[data-admin-action='submitCloseBookingHandling']")?.focus({ preventScroll: true });
+  });
+  return true;
+}
+
+function cancelCloseBookingHandling() {
+  if (appState.adminBookingActionBusyId) return false;
+  appState.adminBookingCloseRequestId = "";
+  renderApp();
+  return true;
+}
+
+async function submitCloseBookingHandling(button, requestId) {
+  const updated = await runBookingStatusAction(button, requestId, "対応完了");
+  if (updated) {
+    appState.adminBookingCloseRequestId = "";
+    renderApp();
+  }
+  return updated;
 }
 
 function buildDefaultBookingProposalMessage(dateTime) {
@@ -9637,11 +9700,15 @@ function applyBookingLineNotification(booking, notification) {
   booking.lineNotificationStatus = notification.status || "";
   booking.lineNotificationSentAt = notification.sentAt || "";
   booking.lineNotificationError = notification.error || "";
+  booking.lineNotificationHttpStatus = notification.httpStatus || "";
+  booking.lineNotificationAttemptedAt = notification.attemptedAt || "";
+  booking.lineNotificationAttempts = notification.attempts || "";
+  booking.lineNotificationRetryKey = notification.retryKey || booking.lineNotificationRetryKey || "";
 }
 
 function getBookingLineNotificationLabel(booking) {
   const status = String(booking?.lineNotificationStatus || "");
-  if (status === "sent") return "送信済み";
+  if (status === "sent") return booking?.lineNotificationHttpStatus ? `送信済み（HTTP ${booking.lineNotificationHttpStatus}）` : "送信済み";
   if (status === "skipped_unlinked") return "LINE未連携のため通知なし";
   if (status === "skipped_disabled") return "LINE通知OFFのため送信なし";
   if (status === "failed") return normalizeBookingStatus(booking?.status || booking?.currentStatus) === "予約確定" ? "予約確定済み・通知失敗" : "通知失敗";
