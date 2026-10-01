@@ -27,6 +27,17 @@ test("対応終了モーダルもiPhone Safariの固定配置対策を有効に�
   assert.match(renderSource, /adminBookingResponseRequestId \|\| appState\.adminBookingCloseRequestId/);
 });
 
+test("予約一覧の再取得失敗時は取得済みデータを隠さず再試行できる", () => {
+  const listSource = sourceBetween("function renderAdminBookings", "function bookingCard");
+  const syncSource = sourceBetween("async function syncProductionBookingRequests", "function normalizeLineNotificationSettings");
+  assert.match(appSource, /"listBookingRequests"\s*\n?\s*\]\);/);
+  assert.match(syncSource, /hasCachedBookings \? "ready" : "loading"/);
+  assert.match(syncSource, /adminBookingSyncWarning = "最新の予約情報を再確認できませんでした/);
+  assert.match(syncSource, /return cachedBookings/);
+  assert.match(listSource, /data-admin-action="reloadBookingRequests"/);
+  assert.match(appSource, /if \(action === "listBookingRequests"\) return 75000/);
+});
+
 test("対応終了はアプリ内確認後に正式な対応完了を保存し、LINE通知文言を使わない", async () => {
   const closeSource = sourceBetween("function closeBookingHandling", "function buildDefaultBookingProposalMessage");
   let statusCall = null;

@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20261001-booking-modal-viewport-1";
+const TEAM_LINK_FRONTEND_BUILD = "20261001-booking-list-resilience-1";
 const TEAM_LINK_SERVICE_WORKER_URL = `./service-worker.js?v=${TEAM_LINK_FRONTEND_BUILD}`;
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
@@ -13,7 +13,8 @@ const teamLinkApiInFlight = new Map();
 const TEAM_LINK_DEDUPED_API_ACTIONS = new Set([
   "getLinkedMemberProfile", "getMyBookingRequests", "getBookingCatalog", "getGachaConfig",
   "getPublishedRewards", "getUserCoupons", "checkMonthlyDrawStatus", "getUserBinder",
-  "getPastBinderHistory", "getCollectionRewards", "getWebPushSubscriptionStatus"
+  "getPastBinderHistory", "getCollectionRewards", "getWebPushSubscriptionStatus",
+  "listBookingRequests"
 ]);
 const TEAM_LINK_PERF_ENABLED = new URLSearchParams(window.location.search).get("perf") === "1";
 const TEAM_LINK_BOOT_STARTED_AT = performance.now();
@@ -156,7 +157,9 @@ const appState = {
     visits: "pending",
     coupons: "pending",
     gacha: "pending"
-  }
+  },
+  adminBookingSyncing: false,
+  adminBookingSyncWarning: ""
 };
 
 const LINE_COUPON_CATEGORY_ORDER = ["すべて", "カット", "カラー", "ストレート", "トリートメント", "ヘッドスパ", "エクステ", "その他"];
@@ -6508,6 +6511,12 @@ function renderAdminBookings() {
         <button type="button" class="secondary-button compact" data-admin-tab="settings">LINE通知設定</button>
       </div>
     </section>
+    ${appState.adminBookingSyncWarning ? `
+      <article class="admin-empty" role="status">
+        <p>${escapeHtml(appState.adminBookingSyncWarning)}</p>
+        <button type="button" class="secondary-button compact" data-admin-action="reloadBookingRequests" ${appState.adminBookingSyncing ? "disabled" : ""}>${appState.adminBookingSyncing ? "再読み込み中…" : "再読み込み"}</button>
+      </article>
+    ` : ""}
     <div class="admin-list admin-booking-list">
       ${sorted.map((booking) => bookingCard(booking)).join("") || emptyAdminState(appState.adminBookingShowClosed ? "終了済みの予約対応はありません" : "予約希望はありません")}
     </div>
@@ -7929,6 +7938,14 @@ function handleAdminAction(button) {
   if (action === "toggleClosedBookings") {
     appState.adminBookingShowClosed = !appState.adminBookingShowClosed;
     renderAdmin();
+    return;
+  }
+  if (action === "reloadBookingRequests") {
+    appState.adminBookingSyncWarning = "";
+    syncProductionBookingRequests().catch((error) => {
+      console.error("[TEAM LINK BOOKING LIST RELOAD FAILED]", error);
+      showToast("予約データを再取得できませんでした。");
+    });
     return;
   }
   if (action === "closeBookingHandling") return closeBookingHandling(button, id);
@@ -11933,13 +11950,13 @@ async function submitBookingRequestSafely(request) {
 }
 
 function getApiTimeoutMs(action) {
+  if (action === "listBookingRequests") return 75000;
   const slowActions = new Set([
     "getAdminProductionData",
     "getBookingCatalog",
     "listCouponMasters",
     "listMenuMasters",
     "listMemberCoupons",
-    "listBookingRequests",
     "submitBookingRequest",
     "drawMonthlyGacha",
     "getGachaConfig",
@@ -12234,7 +12251,11 @@ function parseServerJsonArray(value) {
 
 async function syncProductionBookingRequests(options = {}) {
   if (!isProductionApiMode() || !getAdminSession()) return [];
-  appState.adminDataStatus.bookings = "loading";
+  const cachedBookings = readJson(STORAGE_KEYS.bookings, []);
+  const hasCachedBookings = Array.isArray(cachedBookings) && cachedBookings.length > 0;
+  appState.adminBookingSyncing = true;
+  appState.adminDataStatus.bookings = hasCachedBookings ? "ready" : "loading";
+  if (options.render !== false) renderApp();
   try {
     const result = await apiRequest("listBookingRequests", {});
     const serverBookings = result.bookings || result.data?.bookings;
@@ -12242,9 +12263,22 @@ async function syncProductionBookingRequests(options = {}) {
     const bookings = serverBookings.map(mapServerBookingToLocal);
     writeJson(STORAGE_KEYS.bookings, bookings);
     appState.adminDataStatus.bookings = "ready";
+    appState.adminBookingSyncWarning = "";
+    appState.adminBookingSyncing = false;
     if (options.render !== false) renderApp();
     return bookings;
   } catch (error) {
+    appState.adminBookingSyncing = false;
+    if (hasCachedBookings) {
+      appState.adminDataStatus.bookings = "ready";
+      appState.adminBookingSyncWarning = "最新の予約情報を再確認できませんでした。直前に取得した予約一覧を表示しています。";
+      console.warn("[TEAM LINK BOOKING LIST USING CACHE]", {
+        cachedCount: cachedBookings.length,
+        message: String(error?.message || error)
+      });
+      if (options.render !== false) renderApp();
+      return cachedBookings;
+    }
     appState.adminDataStatus.bookings = "error";
     if (options.render !== false) renderApp();
     throw error;
