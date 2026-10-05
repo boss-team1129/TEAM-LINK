@@ -1,0 +1,44 @@
+--- Code.gs
++++ Code.gs
+@@ receiveLineMessage_(payload): after member lookup, before menuKeyword handling
++  const memberNameIsCorrupted = Boolean(member && isCorruptedLineMemberName_(member));
+   const menuKeyword = normalizeLineMenuKeyword_(messageText);
+   if (menuKeyword) {
+-    if (!member) {
++    if (!member || memberNameIsCorrupted) {
+       const linePush = sendLineNameLinkRequired_(lineUserId, { skipExternalSend: isTest });
+       return apiSuccess_({
+         type: "line_name_link_required",
+         keyword: menuKeyword,
+         linePush,
+         visitRecorded: false,
+         receptionCreated: false
+       }, "最初にお名前をフルネームで送信してください");
+     }
+@@ receiveLineMessage_(payload): after menuKeyword block, before isOwnNameMessage
++  if (memberNameIsCorrupted) {
++    const repairName = extractCustomerNameFromLineMessage_(messageText);
++    if (!repairName) {
++      const linePush = sendLineNameLinkRequired_(lineUserId, { skipExternalSend: isTest });
++      return apiSuccess_({
++        type: "line_name_link_required",
++        linePush,
++        visitRecorded: false,
++        receptionCreated: false
++      }, "最初にお名前をフルネームで送信してください");
++    }
++    member = repairCorruptedLineMemberName_(ss, member, repairName, now);
++  }
++  if (!member && isKnownLineSystemCommandText_(messageText)) {
++    const linePush = sendLineNameLinkRequired_(lineUserId, { skipExternalSend: isTest });
++    return apiSuccess_({
++      type: "line_name_link_required",
++      linePush,
++      visitRecorded: false,
++      receptionCreated: false
++    }, "最初にお名前をフルネームで送信してください");
++  }
+   let isOwnNameMessage = member ? isMemberOwnNameMessage_(member, messageText) : false;
++  if (memberNameIsCorrupted && member) isOwnNameMessage = true;
+@@ extractCustomerNameFromLineMessage_(value): after candidate cleanup, before compact length checks
++  if (isKnownLineSystemCommandText_(candidate)) return "";
