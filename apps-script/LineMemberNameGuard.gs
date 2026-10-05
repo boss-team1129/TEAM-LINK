@@ -81,3 +81,25 @@ function repairCorruptedLineMemberName_(ss, member, candidateName, nowValue) {
     lock.releaseLock();
   }
 }
+
+// Read-only checks against the live project's name parser and menu definitions.
+function diagnoseLineMemberNameGuard() {
+  var results = [];
+  function check(label, passed) {
+    if (!passed) throw new Error("LINE name guard check failed: " + label);
+    results.push({ check: label, passed: true });
+  }
+  check("Japanese name", extractCustomerNameFromLineMessage_("山田 花子") === "山田 花子");
+  check("English name", extractCustomerNameFromLineMessage_("John Smith") === "John Smith");
+  ["水木限定クーポン", "予約をする", "今月のガチャ", "来店しました", "マイページ", "ご縁ラウンジ"].forEach(function(command) {
+    check("Reject command: " + command, extractCustomerNameFromLineMessage_(command) === "");
+  });
+  check("Incorrect name repair eligibility", isCorruptedLineMemberName_({ realName: "水木限定クーポン", nickname: "水木限定クーポン" }));
+  check("Protect normal member", !isCorruptedLineMemberName_({ realName: "山田 花子", nickname: "水木限定クーポン" }));
+  check("Existing name identity", isMemberOwnNameMessage_({ realName: "山田 花子" }, "山田花子"));
+  ["予約", "予約確認", "占い", "ガチャ", "クーポン", "マイページ", "来店"].forEach(function(command) {
+    check("Existing menu: " + command, normalizeLineMenuKeyword_(command) === command);
+  });
+  console.log(JSON.stringify({ passed: results.length, failed: 0, dataWritten: false, results: results }));
+  return results;
+}

@@ -45,3 +45,32 @@ test("本番receiveLineMessageへ再案内・復旧・新規登録防止を統�
   assert.match(patchSource, /!member && isKnownLineSystemCommandText_\(messageText\)/);
   assert.match(patchSource, /isKnownLineSystemCommandText_\(candidate\)/);
 });
+
+test("誤登録済み会員の氏名だけを修復しIDと正常会員を維持する", () => {
+  const records = [{ memberId: "test-member", lineUserId: "test-line", realName: "水木限定クーポン", nickname: "水木限定クーポン", visitCount: 3 }];
+  let writes = 0;
+  const context = {
+    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    SpreadsheetApp: { flush() {} },
+    getSheetObjects_: () => records.map((row) => ({ ...row })),
+    upsertRecord_: (_ss, sheet, key, id, record) => {
+      assert.equal(sheet, "Members");
+      assert.equal(key, "memberId");
+      assert.equal(id, "test-member");
+      records[0] = { ...record };
+      writes += 1;
+    }
+  };
+  vm.runInNewContext(guardSource, context);
+  const repaired = context.repairCorruptedLineMemberName_({}, records[0], "山田 花子", "2026-10-05");
+  assert.equal(repaired.realName, "山田 花子");
+  assert.equal(repaired.nickname, "山田 花子");
+  assert.equal(repaired.memberId, "test-member");
+  assert.equal(repaired.lineUserId, "test-line");
+  assert.equal(repaired.visitCount, 3);
+  assert.equal(repaired.identityStatus, "line_name_confirmed");
+  assert.equal(writes, 1);
+  context.repairCorruptedLineMemberName_({}, records[0], "別の名前", "2026-10-05");
+  assert.equal(records[0].realName, "山田 花子");
+  assert.equal(writes, 1);
+});
