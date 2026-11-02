@@ -8380,3 +8380,20 @@ body.is-home-view .app-shell {
   .visit-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .priority-actions { grid-template-columns: 1fr; }
 }
+
+/* Keep the membership link centered and contained at every screen width. */
+.goen-membership-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 56px;
+  padding: 14px 18px;
+  line-height: 1.5;
+  text-align: center;
+  text-decoration: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

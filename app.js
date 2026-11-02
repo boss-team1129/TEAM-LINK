@@ -77,7 +77,7 @@ const viewMap = {
   collectionRewards: "collectionRewardsView",
   gachaHistory: "gachaHistoryView",
   lounge: "loungeView",
-  loungeRegister: "loungeRegisterView",
+  loungeRegister: "loungeView",
   extension: "extensionView",
   products: "productsView",
   mypage: "mypageView",
@@ -1033,41 +1033,6 @@ function bindForms() {
     } finally {
       appState.bookingSubmitBusy = false;
       setButtonLoading(submitButton, false, "予約希望を送信する");
-    }
-  });
-
-  document.getElementById("loungeForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!isLoungeOpen()) {
-      showToast("ご縁ラウンジは10月スタート予定です。ただいま準備中です。");
-      showView("lounge");
-      return;
-    }
-    const submitButton = event.currentTarget.querySelector("button[type='submit']");
-    setButtonLoading(submitButton, true, "登録中…");
-    try {
-      const form = new FormData(event.currentTarget);
-      const entry = {
-        entryId: createId("LOUNGE"),
-        nickname: form.get("nickname"),
-        gender: form.get("gender"),
-        ageGroup: form.get("ageGroup"),
-        area: form.get("area"),
-        isSingle: form.get("single") === "on",
-        interest: form.get("interest"),
-        notify: form.get("notify") === "on",
-        createdAt: new Date().toISOString()
-      };
-      const entries = readJson(STORAGE_KEYS.loungeEntries, []);
-      entries.push(entry);
-      writeJson(STORAGE_KEYS.loungeEntries, entries);
-      await apiRequest("submitLoungePreEntry", entry);
-      event.currentTarget.reset();
-      renderApp();
-      showToast("無料事前登録を受け付けました。正式開始時にLINEでお知らせします。");
-      showView("lounge");
-    } finally {
-      setButtonLoading(submitButton, false, "無料で事前登録する");
     }
   });
 }
@@ -2857,10 +2822,7 @@ function openInitialView() {
 
 function showView(viewKey, options = {}) {
   const viewStartedAt = performance.now();
-  if (viewKey === "loungeRegister" && !isLoungeOpen()) {
-    showToast("ご縁ラウンジは10月スタート予定です。ただいま準備中です。");
-    viewKey = "lounge";
-  }
+  if (viewKey === "loungeRegister" || viewKey === "loungeRegisterView") viewKey = "lounge";
   const viewId = viewMap[viewKey] || viewKey;
   const target = document.getElementById(viewId);
   if (!target) return;
@@ -5956,15 +5918,7 @@ function isLoungeOpen() {
 }
 
 function renderLounge() {
-  const comingSoonPanel = document.getElementById("loungeComingSoonPanel");
-  const openPanel = document.getElementById("loungeOpenPanel");
-  const isOpen = isLoungeOpen();
-  if (comingSoonPanel) comingSoonPanel.hidden = isOpen;
-  if (openPanel) openPanel.hidden = !isOpen;
-  if (!isOpen) return;
-  const count = getLoungeCount();
-  document.getElementById("loungeCount").textContent = count;
-  document.getElementById("loungeProgress").value = count;
+  // Membership state is verified by the dedicated LINE-authenticated service.
 }
 
 function renderMyPage() {
