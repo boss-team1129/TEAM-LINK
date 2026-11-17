@@ -1,7 +1,7 @@
 const TEAM_LINK_PRODUCTION_API_URL = "https://script.google.com/macros/s/AKfycby4CcCqDlANs3iq3E0dX7e9DRiCsYLXr5M3ntz-IPw5i2HlOVtogLu78MPCw8Sjz1-b/exec";
 const TEAM_LINK_API_URL = window.TEAM_LINK_API_URL || TEAM_LINK_PRODUCTION_API_URL;
 const TEAM_LINK_DATA_MODE = window.TEAM_LINK_DATA_MODE || "production";
-const TEAM_LINK_FRONTEND_BUILD = "20261102-goen-membership-2";
+const TEAM_LINK_FRONTEND_BUILD = "20261117-gacha-use-collection-1";
 const TEAM_LINK_SERVICE_WORKER_URL = `./service-worker.js?v=${TEAM_LINK_FRONTEND_BUILD}`;
 const TEAM_LINK_FORTUNE_API_URL = window.TEAM_LINK_FORTUNE_API_URL || "https://script.google.com/macros/s/AKfycbwR9K2SUXP5iNuA672g8keF--fMKDChRXTqwh47Q0_MXTZ5c6lfcYozrsaBdxlwDv99eA/exec";
 const TEAM_LINK_FORTUNE_DB_ID = window.TEAM_LINK_FORTUNE_DB_ID || (typeof localStorage !== "undefined" ? localStorage.getItem("teamLinkFortuneDbId") : "") || "1zV8nf3lkRqe9blmpg_3ozPkY5C98MwbB8F1PQJQuA-8";
@@ -2518,7 +2518,7 @@ function renderHome() {
   const gachaBadge = document.getElementById("homeGachaBadge");
   if (gachaBadge) {
     gachaBadge.textContent = gachaStatus.used
-      ? "今月は使用済み"
+      ? "今月は抽選済み"
       : gachaStatus.state === "確認中"
         ? "利用状況を確認中"
         : gachaStatus.state === "通信エラー"
@@ -4086,12 +4086,12 @@ function renderGacha() {
   document.getElementById("gachaMonthTitle").textContent = `${status.monthLabel}ガチャ`;
   document.getElementById("gachaGrandPrize").textContent = `今月の特賞：${grandPrize?.prizeName || "準備中"}`;
   document.getElementById("gachaTicketBox").innerHTML = `
-    <small>今月の利用状況</small>
-    <strong>${status.state === "利用済み" ? "利用済み" : status.state === "利用可能" ? "残り1回" : status.state}</strong>
+    <small>今月の抽選状況</small>
+    <strong>${status.state === "利用済み" ? "抽選済み" : status.state === "利用可能" ? "残り1回" : status.state}</strong>
     <p>${status.used
       ? status.draw
         ? `獲得カード：${escapeHtml(status.draw.cardName)} / ${escapeHtml(status.draw.prizeName)}`
-        : "今月のガチャは利用済みです。"
+        : "今月のガチャは抽選済みです。景品の使用状態は当選カードをご確認ください。"
       : status.state === "確認中"
         ? "今月の利用状況をサーバーへ確認しています。"
         : status.state === "通信エラー"
@@ -4100,7 +4100,7 @@ function renderGacha() {
   `;
   if (status.used) {
     button.disabled = true;
-    button.textContent = "今月は利用済み";
+    button.textContent = "今月は抽選済み";
     button.hidden = true;
     document.getElementById("gachaStage")?.classList.add("is-claimed");
     if (choiceStage) choiceStage.innerHTML = status.draw
@@ -4563,11 +4563,33 @@ async function confirmGachaCardUse(cardId) {
     showToast("景品を使用済みにしました。");
   } catch (error) {
     console.error("[TEAM LINK GACHA CUSTOMER USE CONFIRM FAILED]", error);
-    showToast(getGachaUseErrorMessage(error));
+    // An ambiguous response is read back by exact draw id; never resubmit use.
+    const recovered = await reconcileGachaPrizeUse(card).catch(() => false);
+    appState.gachaUseConfirmId = "";
+    if (recovered) {
+      renderGachaCollectionViews();
+      showToast("使用済みの記録を確認しました。");
+    } else {
+      showToast(getGachaUseErrorMessage(error));
+    }
   } finally {
     appState.gachaUseConfirmBusy = false;
     renderApp();
   }
+}
+
+async function reconcileGachaPrizeUse(card) {
+  if (!isProductionApiMode() || !card?.drawId) return false;
+  const userId = getCurrentUserKey();
+  const result = await apiRequest("getUserCoupons", { userId });
+  const coupons = result.data?.coupons || result.coupons;
+  if (!Array.isArray(coupons)) return false;
+  const match = coupons.find((coupon) => String(coupon.drawId || "") === String(card.drawId)
+    && String(coupon.userId || "") === String(userId));
+  if (!match || normalizeGachaState(match.status) !== "used") return false;
+  if (String(getCurrentUserKey()) !== String(userId)) return false;
+  replaceServerGachaCoupons(coupons.filter((coupon) => String(coupon.userId || "") === String(userId)), userId);
+  return true;
 }
 
 function getGachaUseErrorMessage(error) {
@@ -4576,7 +4598,9 @@ function getGachaUseErrorMessage(error) {
   if (code === "ALREADY_USED" || /すでに使用済み/.test(message)) return "この景品はすでに使用済みです。";
   if (code === "EXPIRED" || /期限/.test(message)) return "この景品は有効期限が切れています。";
   if (code === "NOT_FOUND" || code === "USER_MISMATCH" || /見つかりません|一致しません/.test(message)) return "カード情報を取得できませんでした。";
-  return "通信に失敗しました。もう一度お試しください。";
+  if (code === "NOT_CURRENT_MONTH") return "当月の景品情報を確認できませんでした。画面を開き直してください。";
+  if (code === "INVALID_STATUS") return "景品の使用状態を確認できませんでした。スタッフへお知らせください。";
+  return "使用状態を確認できませんでした。再度使用ボタンを押さず、画面を開き直して確認してください。";
 }
 
 function createGachaConfirmCode(card) {
@@ -11595,16 +11619,18 @@ function getRarityOddsTotal(setting) {
 }
 
 function getMemberCardHistory(member) {
-  const history = readJson(STORAGE_KEYS.gachaCardHistory, []);
-  const draws = readJson(STORAGE_KEYS.monthlyGachaDraws, []);
-  const merged = [...history, ...draws];
+  const owner = String(member.linkedMemberId || member.memberId || "");
+  if (!owner) return [];
+  const merged = [...readJson(STORAGE_KEYS.gachaCardHistory, []), ...readJson(STORAGE_KEYS.monthlyGachaDraws, [])];
   const seen = new Set();
   return merged.filter((card) => {
-    const key = card.cardHistoryId || card.drawId;
+    if (String(card.memberId || card.userId || "") !== owner) return false;
+    const key = card.drawId || card.cardHistoryId || card.binderId ||
+      `${owner}:${card.issueMonth || card.targetYearMonth || card.obtainedAt || ""}:${card.cardId || card.characterId || ""}`;
     if (seen.has(key)) return false;
     seen.add(key);
-    return String(card.memberId || "") === String(member.memberId || "");
-  }).sort((a, b) => String(b.obtainedAt || b.drawnAt).localeCompare(String(a.obtainedAt || a.drawnAt)));
+    return true;
+  }).sort((a, b) => String(b.obtainedAt || b.drawnAt || "").localeCompare(String(a.obtainedAt || a.drawnAt || "")));
 }
 
 function getGachaCardYear(card) {
@@ -11844,7 +11870,8 @@ async function apiRequest(action, payload = {}, options = {}) {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), getApiTimeoutMs(action));
   try {
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const maxAttempts = action === "confirmGachaPrizeUse" ? 1 : 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -11857,7 +11884,7 @@ async function apiRequest(action, payload = {}, options = {}) {
       const contentType = String(response.headers.get("content-type") || "");
       if (!response.ok || !contentType.includes("application/json")) {
         const retryableDeploymentResponse = response.status === 404 || /text\/html/i.test(contentType) || /^\s*<!doctype html/i.test(text);
-        if (retryableDeploymentResponse && attempt < 3) {
+        if (retryableDeploymentResponse && attempt < maxAttempts) {
           console.warn("[TEAM LINK API RETRY]", { action, attempt, status: response.status, url: response.url || apiUrl });
           await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt));
           continue;
@@ -11915,6 +11942,7 @@ function getApiTimeoutMs(action) {
     "listMemberCoupons",
     "submitBookingRequest",
     "drawMonthlyGacha",
+    "confirmGachaPrizeUse",
     "getGachaConfig",
     "getPublishedRewards",
     "checkMonthlyDrawStatus",
@@ -11994,6 +12022,24 @@ async function syncProductionState() {
   }
 }
 
+const GACHA_AUX_TTL_MS = 30000;
+const GACHA_AUX_ROUTES = new Set(["mycards", "collectionRewards", "gachaHistory"]);
+const gachaAuxAttemptedAt = new Map();
+const gachaAuxInflight = new Map();
+function ensureProductionGachaAuxiliary(routeKey, userKey, { force = false } = {}) {
+  if (!GACHA_AUX_ROUTES.has(routeKey) || !userKey) return Promise.resolve(false);
+  const key = `${userKey}|${currentMonthKey()}|${routeKey}`;
+  if (gachaAuxInflight.has(key)) return gachaAuxInflight.get(key);
+  const at = Date.now();
+  if (!force && gachaAuxAttemptedAt.has(key) && at - gachaAuxAttemptedAt.get(key) < GACHA_AUX_TTL_MS) return Promise.resolve(false);
+  gachaAuxAttemptedAt.set(key, at);
+  const pending = Promise.resolve().then(() => syncProductionGachaAuxiliaryData(routeKey, userKey))
+    .then(() => true).catch((error) => { console.warn("[TEAM LINK GACHA AUXILIARY SYNC FAILED]", error); return false; })
+    .finally(() => { if (gachaAuxInflight.get(key) === pending) gachaAuxInflight.delete(key); });
+  gachaAuxInflight.set(key, pending);
+  return pending;
+}
+
 async function ensureProductionGachaState(options = {}) {
   const profile = getProfile();
   const userKey = getCurrentUserKey();
@@ -12001,7 +12047,10 @@ async function ensureProductionGachaState(options = {}) {
   if (!options.force
     && appState.gachaDrawSyncStatus === "ready"
     && appState.gachaDrawSyncUserKey === String(userKey)
-    && appState.gachaDrawSyncMonth === month) return true;
+    && appState.gachaDrawSyncMonth === month) {
+    await ensureProductionGachaAuxiliary(getCurrentRouteKey(), userKey);
+    return true;
+  }
   if (teamLinkGachaSyncPromise) return teamLinkGachaSyncPromise;
   appState.gachaDrawSyncStatus = "loading";
   appState.gachaDrawSyncUserKey = String(userKey);
@@ -12027,7 +12076,7 @@ async function ensureProductionGachaState(options = {}) {
     appState.gachaDrawSyncStatus = "ready";
     if (TEAM_LINK_GACHA_ROUTE_KEYS.has(getCurrentRouteKey())) renderApp();
     if (getCurrentRouteKey() !== "gacha") {
-      syncProductionGachaAuxiliaryData(getCurrentRouteKey(), userKey).catch((error) => {
+      ensureProductionGachaAuxiliary(getCurrentRouteKey(), userKey).catch((error) => {
         console.warn("[TEAM LINK GACHA AUXILIARY SYNC FAILED]", error);
       });
     }
@@ -12046,8 +12095,8 @@ async function syncProductionGachaAuxiliaryData(routeKey, userKey) {
   const requests = routeKey === "gacha"
     ? [["getGachaConfig", {}], ["getPublishedRewards", {}], ["getUserCoupons", { userId: userKey }]]
     : routeKey === "collectionRewards"
-      ? [["getUserBinder", { userId: userKey, year: String(currentYear()) }], ["getCollectionRewards", { userId: userKey, targetYear: String(currentYear()) }]]
-      : [["getUserBinder", { userId: userKey, year: String(currentYear()) }], ["getPastBinderHistory", { userId: userKey, currentYear: String(currentYear()) }]];
+      ? [["getUserCoupons", { userId: userKey }], ["getUserBinder", { userId: userKey, year: String(currentYear()) }], ["getCollectionRewards", { userId: userKey, targetYear: String(currentYear()) }]]
+      : [["getUserCoupons", { userId: userKey }], ["getUserBinder", { userId: userKey, year: String(currentYear()) }], ["getPastBinderHistory", { userId: userKey, currentYear: String(currentYear()) }]];
   for (const [action, payload] of requests) {
     try {
       const result = await apiRequest(action, payload);
