@@ -13101,9 +13101,8 @@ function getBookingLineIssueText(booking) {
 }
 
 function canRetryBookingLineNotification(booking) {
-  if (String(booking?.lineNotificationStatus || '') !== 'failed') return false;
-  if (!String(booking?.lineNotificationType || '')) return false;
-  return BOOKING_LINE_RETRYABLE_STATUSES.includes(normalizeBookingStatus(booking?.status || booking?.currentStatus));
+  // Disabled until the existing server-side admin session verification is replaced.
+  return false;
 }
 
 function renderBookingLineRetryButton(booking, isActionBusy) {
