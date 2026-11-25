@@ -6570,7 +6570,7 @@ function bookingCard(booking) {
         ${emailNotificationLabel ? `<p>予約通知メール：${escapeHtml(emailNotificationLabel)}</p>` : ""}
         ${lineNotificationLabel ? `<p>LINE通知：${escapeHtml(lineNotificationLabel)}</p>` : ""}
         ${String(booking.lineNotificationStatus || "") === "failed" && booking.lineNotificationError
-          ? `<p class="admin-notification-error">通知エラー：${escapeHtml(booking.lineNotificationError)}</p>`
+          ? `<p class="admin-notification-error">通知エラー：${escapeHtml(getBookingLineIssueText(booking))}</p>`
           : ""}
         <small>${escapeHtml(booking.userId || booking.memberId || "")} / 受付 ${escapeHtml(formatDateTime(booking.receivedAt || booking.createdAt))}</small>
       </details>
@@ -6579,7 +6579,9 @@ function bookingCard(booking) {
           キャンセル処理へ
         </button>
       ` : ""}
+      ${renderBookingManualNotice(booking)}
       <div class="admin-actions admin-booking-actions">
+        ${renderBookingLineRetryButton(booking, isActionBusy)}
         ${!isCancellationRequest && canDateRespond
             ? `<button type="button" data-admin-action="confirmFirstChoice" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を確認・確定" : "確定日時を選ぶ"}</button><button type="button" class="secondary-button" data-admin-action="proposeBooking" data-id="${escapeHtml(requestId)}" ${isActionBusy ? "disabled" : ""}>${hasProposal ? "提案日時を変更・再送" : "別日の案内"}</button>`
             : ""}
@@ -7907,6 +7909,8 @@ function handleAdminAction(button) {
   if (action === "addMemo") return addMemberMemo(id);
   if (action === "toggleMemberStatus") return toggleMemberStatus(id);
   if (action === "bookingDetail") return showBookingDetail(id);
+  if (action === "retryBookingLineNotification") return retryBookingLineNotificationFromAdmin(id);
+  if (action === "copyBookingLineMessage") return copyBookingLineMessage(id);
   if (action === "bookingMemberChart") return openMemberChart(id);
   if (action === "openCancelBooking") return openBookingResponseModal(id, "cancel");
   if (action === "confirmFirstChoice") return openBookingResponseModal(id, "confirm");
@@ -9701,18 +9705,20 @@ function applyBookingLineNotification(booking, notification) {
   booking.lineNotificationSentAt = notification.sentAt || "";
   booking.lineNotificationError = notification.error || "";
   booking.lineNotificationHttpStatus = notification.httpStatus || "";
+  booking.lineNotificationErrorCode = notification.errorCode || '';
   booking.lineNotificationAttemptedAt = notification.attemptedAt || "";
   booking.lineNotificationAttempts = notification.attempts || "";
   booking.lineNotificationRetryKey = notification.retryKey || booking.lineNotificationRetryKey || "";
 }
 
 function getBookingLineNotificationLabel(booking) {
-  const status = String(booking?.lineNotificationStatus || "");
-  if (status === "sent") return booking?.lineNotificationHttpStatus ? `送信済み（HTTP ${booking.lineNotificationHttpStatus}）` : "送信済み";
-  if (status === "skipped_unlinked") return "LINE未連携のため通知なし";
-  if (status === "skipped_disabled") return "LINE通知OFFのため送信なし";
-  if (status === "failed") return normalizeBookingStatus(booking?.status || booking?.currentStatus) === "予約確定" ? "予約確定済み・通知失敗" : "通知失敗";
-  return "";
+  const status = String(booking?.lineNotificationStatus || '');
+  if (status === 'sent') return booking?.lineNotificationHttpStatus ? `LINE受付済み（HTTP ${booking.lineNotificationHttpStatus}）` : 'LINE受付済み';
+  if (status === 'skipped_unlinked') return 'LINE未連携のため通知なし';
+  if (status === 'skipped_disabled') return 'LINE通知OFFのため送信なし';
+  if (status === 'retry_review_required') return '通知要確認（二重送信防止のため自動再送停止）';
+  if (status === 'failed') return normalizeBookingStatus(booking?.status || booking?.currentStatus) === '予約確定' ? '予約確定済み・通知失敗' : '通知失敗';
+  return '';
 }
 
 function getBookingEmailNotificationLabel(booking) {
@@ -9727,21 +9733,26 @@ function getBookingEmailNotificationLabel(booking) {
 }
 
 function showBookingLineNotificationToast(successMessage, notification) {
-  const status = String(notification?.status || "");
-  if (status === "skipped_unlinked") {
+  const status = String(notification?.status || '');
+  if (status === 'skipped_unlinked') {
     showToast(`${successMessage}（LINE未連携のため通知なし）`);
     return;
   }
-  if (status === "skipped_disabled") {
+  if (status === 'skipped_disabled') {
     showToast(`${successMessage}（LINE通知OFFのため送信なし）`);
     return;
   }
-  if (status === "failed") {
-    showToast(`${successMessage}が、LINE通知に失敗しました`);
+  if (status === 'retry_review_required') {
+    showToast(`${successMessage}。LINE通知は二重送信防止のため要確認です。`);
     return;
   }
-  if (status === "sent") {
-    showToast(`${successMessage}。LINE通知を送信しました。`);
+  if (status === 'failed') {
+    const issue = getBookingLineIssue({ lineNotificationStatus: 'failed', lineNotificationErrorCode: notification?.errorCode || '', lineNotificationHttpStatus: notification?.httpStatus || '' });
+    showToast(issue ? `${successMessage}。${issue.text}` : `${successMessage}が、LINE通知に失敗しました`);
+    return;
+  }
+  if (status === 'sent') {
+    showToast(`${successMessage}。LINEへの送信を受け付けました。`);
     return;
   }
   showToast(`${successMessage}。`);
@@ -11870,7 +11881,7 @@ async function apiRequest(action, payload = {}, options = {}) {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), getApiTimeoutMs(action));
   try {
-    const maxAttempts = action === "confirmGachaPrizeUse" ? 1 : 3;
+    const maxAttempts = ["confirmGachaPrizeUse", "retryBookingLineNotification"].includes(action) ? 1 : 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const response = await fetch(apiUrl, {
         method: "POST",
@@ -13045,4 +13056,148 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;"
   }[char]));
+}
+
+// TEAM LINK admin UI additions for LINE notification retry (DRAFT).
+// Needs existing globals: apiRequest, appState, showToast, escapeHtml, normalizeBookingStatus,
+// applyBookingLineNotification, showBookingLineNotificationToast.
+// ASSUMED names (verify): appState.adminBookings, renderAdminBookings(), loadAdminBookings().
+const BOOKING_LINE_RETRYABLE_STATUSES = ['予約確定', '別日時提案中', '日時変更相談', 'キャンセル']; // keep in sync with server getBookingLineNotificationType_
+const BOOKING_LINE_CONFIG_CODES = ['LINE_USER_ID_NOT_CONFIGURED', 'LINE_MESSAGES_EMPTY', 'LINE_CHANNEL_ACCESS_TOKEN_NOT_CONFIGURED'];
+
+function getBookingLineIssue(booking) {
+  const status = String(booking?.lineNotificationStatus || '');
+  const code = String(booking?.lineNotificationErrorCode || booking?.lineNotificationError || '');
+  const http = Number(booking?.lineNotificationHttpStatus || 0);
+  if (status === 'retry_review_required') {
+    return { kind: 'review', text: '二重送信を防ぐため自動再送を停止しています。予約は保存済みです。LINEでの送信状況を確認するか、お客様へ直接ご連絡ください。' };
+  }
+  if (status === 'skipped_unlinked') return {kind:'unlinked',text:'LINE未連携のため未通知です。お客様のトークを確認して個別にご連絡ください。'};
+  if (status !== 'failed') return null;
+  if (code === 'LINE_MONTHLY_LIMIT_429' || /monthly.limit/i.test(code)) {
+    return { kind: 'monthly', text: '予約は保存済みです。LINEの月間送信上限のため、お客様には未通知です。お客様へ直接ご連絡いただくか、翌月に送信枠が戻った後、必要な予約だけ再送してください。' };
+  }
+  if (code === 'LINE_RATE_LIMIT_429') {
+    return { kind: 'rate', text: 'LINEが混み合っているため通知できませんでした。予約は保存済みです。しばらくしてから再送してください。' };
+  }
+  if (code === 'LINE_AUTH_401' || code === 'LINE_AUTH_403' || (!code && (http === 401 || http === 403))) {
+    return { kind: 'auth', text: 'LINEの認証エラーです。予約は保存済みですが未通知の可能性があります。管理者がLINE連携設定を確認してから再送してください。' };
+  }
+  if (code === 'LINE_INVALID_400' || (!code && http === 400)) {
+    return { kind: 'invalid', text: 'LINEに通知内容または宛先を拒否されました。予約は保存済みです。お客様へ直接ご連絡ください。' };
+  }
+  if (!code && http === 429) {
+    return { kind: 'limit_unknown', text: 'LINEの送信制限により通知できませんでした（月間上限の可能性があります）。予約は保存済みです。お客様へ直接ご連絡いただくか、上限を確認してから再送してください。' };
+  }
+  if (BOOKING_LINE_CONFIG_CODES.includes(code)) {
+    return { kind: 'config', text: 'LINEの連携設定が未完了のため通知できませんでした。予約は保存済みです。' };
+  }
+  return { kind: 'ambiguous', text: 'LINEの受付結果を確認できませんでした。予約は保存済みです。お客様に届いている可能性があるため、再送は重複防止の送信キーを使って行われます。' };
+}
+
+function getBookingLineIssueText(booking) {
+  const issue = getBookingLineIssue(booking);
+  return issue ? issue.text : 'LINE通知に失敗しました。';
+}
+
+function canRetryBookingLineNotification(booking) {
+  if (String(booking?.lineNotificationStatus || '') !== 'failed') return false;
+  if (!String(booking?.lineNotificationType || '')) return false;
+  return BOOKING_LINE_RETRYABLE_STATUSES.includes(normalizeBookingStatus(booking?.status || booking?.currentStatus));
+}
+
+function renderBookingLineRetryButton(booking, isActionBusy) {
+  const requestId = booking?.requestId || booking?.bookingRequestId || '';
+  const issue = getBookingLineIssue(booking);
+  if (issue && issue.kind === 'review') {
+    return `<p class='admin-notification-error'>${escapeHtml(issue.text)}</p>`;
+  }
+  if (!canRetryBookingLineNotification(booking)) return '';
+  return `<button type='button' class='secondary-button' data-admin-action='retryBookingLineNotification' data-id='${escapeHtml(requestId)}' ${isActionBusy ? 'disabled' : ''}>LINE通知を再送</button>`;
+}
+
+function isBookingRetryTimeout(error) {
+  const text = [error?.name, error?.code, error?.message].filter(Boolean).join(' ');
+  return /timeout|timed out|abort|タイムアウト/i.test(text);
+}
+
+function describeBookingLineRetryError(error) {
+  const code = String((error && (error.errorCode || error.code || error.message)) || '');
+  const map = {
+    NOTIFICATION_REVIEW_REQUIRED: '二重送信防止のため要確認です。自動では再送できません。',
+    NOTIFICATION_NOT_RETRYABLE: 'この通知は再送の対象ではありません。',
+    NOTIFICATION_STALE: '予約の状態が変わっているため、この通知は再送できません。画面を更新してください。',
+    BOOKING_NOT_NOTIFIABLE: 'この予約状態ではLINE通知の対象外です。',
+    BOOKING_NOT_FOUND: '予約が見つかりません。',
+    INVALID_REQUEST_ID: '予約IDが不正です。'
+  };
+  return map[code] || 'LINE通知の再送に失敗しました。';
+}
+
+function refreshAdminBookingsAfterRetry() {
+  return syncProductionBookingRequests();
+}
+
+function rerenderAdminBookingsForRetry() {
+  renderApp();
+}
+
+async function retryBookingLineNotificationFromAdmin(requestId) {
+  const id = String(requestId || '').trim();
+  if (!id || String(appState.adminBookingActionBusyId || '')) return;
+  if (!window.confirm('LINE通知を再送しますか？ 予約の状態・日時は変更されません。')) return;
+  appState.adminBookingActionBusyId = id;
+  rerenderAdminBookingsForRetry();
+  try {
+    const response = await apiRequest('retryBookingLineNotification', { requestId: id });
+    const data = response && response.data ? response.data : response;
+    const notification = data && data.notification;
+    const list = readJson(STORAGE_KEYS.bookings, []);
+    const local = list.find((item) => String(item.requestId || item.bookingRequestId || '') === id);
+    if (local && notification) {
+      applyBookingLineNotification(local, notification);
+      writeJson(STORAGE_KEYS.bookings, list);
+    }
+    if (notification && notification.duplicate) {
+      showToast('LINE通知は送信済みのため、再送していません。');
+    } else {
+      showBookingLineNotificationToast('LINE通知の再送を実行しました', notification);
+    }
+  } catch (error) {
+    if (isBookingRetryTimeout(error)) {
+      showToast('通信がタイムアウトしました。送信結果を確認するため一覧を更新します（自動再送はしません）。');
+      try { await refreshAdminBookingsAfterRetry(); } catch (refreshError) { /* refresh only */ }
+    } else {
+      showToast(describeBookingLineRetryError(error));
+      try { await refreshAdminBookingsAfterRetry(); } catch (_) {}
+    }
+  } finally {
+    appState.adminBookingActionBusyId = '';
+    rerenderAdminBookingsForRetry();
+  }
+}
+
+
+function renderBookingManualNotice(booking) {
+  if (!['failed','retry_review_required','skipped_unlinked'].includes(String(booking?.lineNotificationStatus || ''))) return '';
+  const confirmed = normalizeBookingStatus(booking.status || booking.currentStatus) === '予約確定';
+  const id = booking.requestId || booking.bookingRequestId || '';
+  return `<div class="admin-notification-error" role="status"><p>${escapeHtml(getBookingLineIssueText(booking))}</p>${confirmed ? `<button type="button" class="secondary-button" data-admin-action="copyBookingLineMessage" data-id="${escapeHtml(id)}">予約案内文をコピー</button><p>公式LINEの個別チャットで、お客様のトークを選んで貼り付け・送信してください。コピーだけでは送信されません。</p>` : ''}</div>`;
+}
+function buildBookingManualLineMessage(booking) {
+  if (normalizeBookingStatus(booking.status || booking.currentStatus) !== '予約確定' || !booking.confirmedDateTime) throw new Error('確定日時を先に確認してください。');
+  const labels = (items, fallback) => Array.isArray(items) && items.length ? items.map(i => typeof i === 'string' ? i : i.title || i.menuName || i.couponName || i.name || '').filter(Boolean).join('、') : String(fallback || '店舗確認');
+  const lines = ['【TEAM hair ご予約確定】','',String(booking.customerName || 'お客様')+'様、ご予約ありがとうございます。','以下の内容でご予約を承りました。','','■日時',formatDateTime(booking.confirmedDateTime),'','■メニュー',labels(booking.selectedMenus,booking.menu),'','■担当',formatStaffDisplayName(booking.staffDisplayName || booking.staff || '') || '店舗確認'];
+  if ((booking.selectedCoupons || []).length || booking.couponTitle) lines.push('','■クーポン',labels(booking.selectedCoupons,booking.couponTitle));
+  if (booking.staffMessage) lines.push('','■店舗からのメッセージ',String(booking.staffMessage));
+  lines.push('','ご来店をお待ちしております。'); return lines.join('\n');
+}
+async function copyBookingLineMessage(requestId) {
+  const booking = readJson(STORAGE_KEYS.bookings, []).find(b => String(b.requestId || b.bookingRequestId) === String(requestId));
+  if (!booking) { showToast('予約を再読み込みしてください。'); return; }
+  try {
+    const text=buildBookingManualLineMessage(booking);
+    await navigator.clipboard.writeText(text);
+    showToast('案内文をコピーしました。公式LINEの個別チャットで宛先を確認して送信してください。');
+  } catch (_) { showToast('コピーできませんでした。確定日時とブラウザのコピー設定を確認してください。'); }
 }
